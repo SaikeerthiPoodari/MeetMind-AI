@@ -297,7 +297,11 @@ export default function App() {
           />
         )}{" "}
         {page === "meeting" && (
-          <Meeting meeting={selected} onBack={() => setPage("dashboard")} />
+          <Meeting
+            meeting={selected}
+            meetings={meetings}
+            onBack={() => setPage("dashboard")}
+          />
         )}{" "}
         {page === "actions" && (
           <Actions actions={actions} setActions={setActions} />
@@ -510,12 +514,16 @@ function Signal({ text, tone }: { text: string; tone: string }) {
 }
 function Meeting({
   meeting,
+  meetings,
   onBack,
 }: {
   meeting: ApiMeeting | null;
+  meetings: ApiMeeting[];
   onBack: () => void;
 }) {
   const [tab, setTab] = useState("Overview");
+  const [comparison, setComparison] = useState<any>(null);
+  const [compareId, setCompareId] = useState("");
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<{
@@ -561,6 +569,16 @@ function Meeting({
       });
     }
   };
+  const compare = async () => {
+    if (!compareId || !meeting) return;
+    try {
+      setComparison(await api.compare(meeting.id, compareId));
+    } catch (e) {
+      setComparison({
+        error: e instanceof Error ? e.message : "Unable to compare meetings",
+      });
+    }
+  };
   return (
     <div className="page meeting-page">
       <button className="back-btn" onClick={onBack}>
@@ -596,19 +614,82 @@ function Meeting({
         </div>
       </div>
       <div className="tabs">
-        {["Overview", "Transcript", "Decisions", "Risks", "Ask meeting"].map(
-          (t) => (
-            <button
-              className={tab === t ? "active" : ""}
-              onClick={() => setTab(t)}
-              key={t}
-            >
-              {t}
-            </button>
-          ),
-        )}
+        {[
+          "Overview",
+          "Transcript",
+          "Decisions",
+          "Risks",
+          "Ask meeting",
+          "Compare",
+        ].map((t) => (
+          <button
+            className={tab === t ? "active" : ""}
+            onClick={() => setTab(t)}
+            key={t}
+          >
+            {t}
+          </button>
+        ))}
       </div>
-      {tab === "Ask meeting" ? (
+      {tab === "Compare" ? (
+        <section className="panel compare-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">DECISION DRIFT</p>
+              <h2>What changed?</h2>
+            </div>
+          </div>
+          <p className="muted">
+            Compare this meeting with another authorized meeting. Only persisted
+            records are compared.
+          </p>
+          <select
+            value={compareId}
+            onChange={(e) => setCompareId(e.target.value)}
+            style={{
+              padding: 10,
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              background: "var(--panel)",
+              color: "var(--ink)",
+              marginRight: 8,
+            }}
+          >
+            <option value="">Choose a meeting</option>
+            {meetings
+              .filter((item) => item.id !== meeting.id)
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
+                </option>
+              ))}
+          </select>
+          <button className="primary" onClick={compare}>
+            Compare
+          </button>
+          {comparison?.error && (
+            <p className="api-notice">{comparison.error}</p>
+          )}
+          {comparison && !comparison.error && (
+            <div className="insight-grid" style={{ marginTop: 20 }}>
+              {(["decisions", "actions", "risks"] as const).map((key) => (
+                <section className="panel" key={key}>
+                  <p className="eyebrow">{key.toUpperCase()}</p>
+                  <h3>New · {comparison[key].new.length}</h3>
+                  <p className="muted">
+                    {comparison[key].new.join(", ") || "None"}
+                  </p>
+                  <h3>Removed · {comparison[key].removed.length}</h3>
+                  <p className="muted">
+                    {comparison[key].removed.join(", ") || "None"}
+                  </p>
+                  <h3>Unchanged · {comparison[key].unchanged.length}</h3>
+                </section>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : tab === "Ask meeting" ? (
         <section className="ask-layout">
           <div className="ask-box">
             <div className="ask-spark">
