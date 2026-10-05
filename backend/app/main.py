@@ -188,6 +188,15 @@ def search(q: str = Query(min_length=2, max_length=200), user: User = Depends(cu
             if needle in action.task.lower(): results.append({"type": "action", "meeting_id": meeting.id, "title": meeting.title, "matched": action.task, "status": action.status})
     return {"query": q, "items": results, "total": len(results)}
 
+@app.get("/api/compare/meetings")
+def compare_meetings(first_id: str, second_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    first = user_meeting(db, first_id, user); second = user_meeting(db, second_id, user)
+    def values(model, field: str, meeting_id: str) -> set[str]: return {str(getattr(item, field)).strip().lower() for item in db.scalars(select(model).where(model.meeting_id == meeting_id)).all()}
+    def diff(model, field: str):
+        left, right = values(model, field, first.id), values(model, field, second.id)
+        return {"new": sorted(right - left), "removed": sorted(left - right), "unchanged": sorted(left & right)}
+    return {"first": {"id": first.id, "title": first.title}, "second": {"id": second.id, "title": second.title}, "decisions": diff(Decision, "decision"), "actions": diff(ActionItem, "task"), "risks": diff(Risk, "risk")}
+
 @app.get("/api/meetings/{meeting_id}/export")
 def export_meeting(meeting_id: str, format: str = Query("json", pattern="^(json|txt)$"), user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = user_meeting(db, meeting_id, user)

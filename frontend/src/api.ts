@@ -159,4 +159,8 @@ export const api = {
     }>("/api/notifications"),
   markNotification: (id: string) =>
     request(`/api/notifications/${id}`, { method: "PATCH" }),
+  compare: (firstId: string, secondId: string) =>
+    request(
+      `/api/compare/meetings?first_id=${encodeURIComponent(firstId)}&second_id=${encodeURIComponent(secondId)}`,
+    ),
 };

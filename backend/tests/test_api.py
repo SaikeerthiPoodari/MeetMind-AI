@@ -116,3 +116,11 @@ def test_notifications_are_created_and_markable(client):
     item = notifications['items'][0]
     marked = client.patch(f"/api/notifications/{item['id']}", headers=headers)
     assert marked.status_code == 200 and marked.json()['read'] is True
+
+def test_authorized_meeting_comparison_returns_diffs(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    created = client.post('/api/meetings', headers=headers, json={'title': 'Apollo follow-up'}).json()
+    response = client.get(f"/api/compare/meetings?first_id={demo['id']}&second_id={created['id']}", headers=headers)
+    assert response.status_code == 200
+    assert set(response.json()['decisions']) == {'new', 'removed', 'unchanged'}
