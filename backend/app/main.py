@@ -551,7 +551,7 @@ def export_meeting(meeting_id: str, format: str = Query("json", pattern="^(json|
 @app.post("/api/meetings/{meeting_id}/upload")
 async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
     user_meeting(db, meeting_id, user)
-    allowed = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "video/mp4", "video/quicktime", "video/webm", "text/plain", "text/vtt", "application/x-subrip"}
+    allowed = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/webm", "video/mp4", "video/quicktime", "video/webm", "text/plain", "text/vtt", "application/x-subrip"}
     if file.content_type not in allowed: raise HTTPException(415, "Unsupported meeting file type")
     content = await file.read()
     if len(content) > 250 * 1024 * 1024: raise HTTPException(413, "Meeting file exceeds the 250 MB limit")

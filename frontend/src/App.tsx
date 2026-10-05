@@ -1415,12 +1415,6 @@ function Actions({
 }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [message, setMessage] = useState("");
-  const [liveCaption, setLiveCaption] = useState("");
-  const [captionStatus, setCaptionStatus] = useState("Checking browser caption support...");
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<
-    Array<{ id: string; message: string; created_at: string }>
-  >([]);
   const complete = async (a: ApiAction) => {
     try {
       const updated = await api.updateAction(a.id, { status: "Completed" });
@@ -1515,6 +1509,10 @@ function Room({
   const [busy, setBusy] = useState(false);
   const [roomShareOpen, setRoomShareOpen] = useState(false);
   const [roomMeeting, setRoomMeeting] = useState<ApiMeeting | null>(null);
+  const [liveCaption, setLiveCaption] = useState("");
+  const [captionStatus, setCaptionStatus] = useState("Checking browser caption support...");
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; message: string; created_at: string }>>([]);
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [elapsed, setElapsed] = useState(0);
@@ -1553,10 +1551,20 @@ function Room({
     setBusy(true);
     setMessage("Requesting camera and microphone access...");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      } catch (videoError) {
+        // Audio-only capture keeps a meeting usable when the camera is absent
+        // or the user grants microphone permission but denies camera access.
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          setCameraOn(false);
+          setMessage("Camera unavailable; recording audio only.");
+        } catch {
+          throw videoError;
+        }
+      }
       streamRef.current = stream;
       cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
       if (videoRef.current) {
@@ -1567,7 +1575,9 @@ function Room({
       await api.join(meeting.id);
       await api.start(meeting.id);
       chunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
+      const mimeTypes = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "audio/webm", "video/webm"];
+      const mimeType = mimeTypes.find((type) => MediaRecorder.isTypeSupported?.(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
       };
@@ -1645,7 +1655,9 @@ function Room({
         await api.upload(meeting.id, captionFile);
       }
       await api.end(meeting.id);
-      await api.process(meeting.id);
+      // A media-only recording is still a valid saved meeting. Processing can
+      // resume later when a transcription provider or transcript is available.
+      if (captionLinesRef.current.length) await api.process(meeting.id);
       const saved = await api.getMeeting(meeting.id);
       onDone(saved);
     } catch (e) {
