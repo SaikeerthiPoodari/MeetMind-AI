@@ -44,7 +44,8 @@ type Page =
   | "search"
   | "room"
   | "privacy"
-  | "admin";
+  | "admin"
+  | "providers";
 const demoSegments = [
   [
     "00:00",
@@ -249,7 +250,12 @@ export default function App() {
               <small>Provider-safe workspace</small>
             </span>
           </div>
-          <Nav icon={<Zap />} label="AI provider status" />
+          <Nav
+            icon={<Zap />}
+            label="AI provider status"
+            active={page === "providers"}
+            onClick={() => setPage("providers")}
+          />
         </div>
       </aside>
       <main>
@@ -275,7 +281,9 @@ export default function App() {
                           ? "Privacy controls"
                           : page === "admin"
                             ? "Admin audit log"
-                            : "Overview"}
+                            : page === "providers"
+                              ? "Provider status"
+                              : "Overview"}
             </strong>
           </div>
           <div className="top-actions">
@@ -394,6 +402,7 @@ export default function App() {
           <PrivacyPage onDeleted={() => window.location.reload()} />
         )}
         {page === "admin" && role === "ADMIN" && <AdminPage />}
+        {page === "providers" && <ProviderPage />}
       </main>
     </div>
   );
@@ -1709,6 +1718,73 @@ function AdminPage() {
           <p className="muted">No audit events recorded yet.</p>
         )}
       </section>
+    </div>
+  );
+}
+
+function ProviderPage() {
+  const [health, setHealth] = useState<any>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api
+      .health()
+      .then(setHealth)
+      .catch((e) =>
+        setError(
+          e instanceof Error ? e.message : "Unable to load provider status",
+        ),
+      );
+  }, []);
+  const providers = health
+    ? [
+        ["AI analysis", health.ai_provider, health.ai_configured],
+        [
+          "Transcription",
+          health.transcription_provider,
+          health.transcription_configured,
+        ],
+        [
+          "Translation",
+          health.translation_provider,
+          health.translation_configured,
+        ],
+      ]
+    : [];
+  return (
+    <div className="page">
+      <section className="welcome">
+        <div>
+          <p className="eyebrow">INTEGRATION STATUS</p>
+          <h1>Know what is configured.</h1>
+          <p className="lead">
+            Provider boundaries fail clearly instead of presenting fake
+            successful AI output.
+          </p>
+        </div>
+      </section>
+      {error && <p className="api-notice">{error}</p>}
+      <section className="panel provider-grid">
+        {providers.map(([label, name, configured]) => (
+          <div className="provider-card" key={label as string}>
+            <div
+              className={
+                configured ? "provider-dot configured" : "provider-dot"
+              }
+            />
+            <strong>{label}</strong>
+            <span>{name}</span>
+            <small>{configured ? "Configured" : "Not configured"}</small>
+          </div>
+        ))}
+        {!health && !error && (
+          <p className="muted">Loading provider status...</p>
+        )}
+      </section>
+      {health && (
+        <p className="muted provider-footnote">
+          Database: {health.database} · API: {health.status}
+        </p>
+      )}
     </div>
   );
 }

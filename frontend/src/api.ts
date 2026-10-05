@@ -115,6 +115,17 @@ export const api = {
       }>;
       total: number;
     }>("/api/admin/audit-logs"),
+  health: () =>
+    request<{
+      status: string;
+      database: string;
+      ai_provider: string;
+      ai_configured: boolean;
+      translation_provider: string;
+      translation_configured: boolean;
+      transcription_provider: string;
+      transcription_configured: boolean;
+    }>("/api/health"),
   async bootstrap() {
     if (token) {
       await request("/api/me").catch(async () => {
