@@ -36,7 +36,8 @@ import ml from "./locales/ml.json";
 import mr from "./locales/mr.json";
 import bn from "./locales/bn.json";
 
-type Page = "dashboard" | "meeting" | "actions" | "new" | "search" | "room";
+type Page =
+  "dashboard" | "meeting" | "actions" | "new" | "search" | "room" | "privacy";
 const demoSegments = [
   [
     "00:00",
@@ -216,6 +217,12 @@ export default function App() {
             active={page === "search"}
             onClick={() => setPage("search")}
           />
+          <Nav
+            icon={<Sparkles />}
+            label="Privacy"
+            active={page === "privacy"}
+            onClick={() => setPage("privacy")}
+          />
         </nav>
         <div className="sidebar-bottom">
           <div className="privacy">
@@ -245,7 +252,11 @@ export default function App() {
                     ? "New meeting"
                     : page === "search"
                       ? "Meeting memory"
-                      : "Overview"}
+                      : page === "room"
+                        ? "MeetMind meeting room"
+                        : page === "privacy"
+                          ? "Privacy controls"
+                          : "Overview"}
             </strong>
           </div>
           <div className="top-actions">
@@ -359,6 +370,9 @@ export default function App() {
               setPage("meeting");
             }}
           />
+        )}
+        {page === "privacy" && (
+          <PrivacyPage onDeleted={() => window.location.reload()} />
         )}
       </main>
     </div>
@@ -1543,6 +1557,81 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
             : "Already have an account? Sign in"}
         </button>
       </section>
+    </div>
+  );
+}
+
+function PrivacyPage({ onDeleted }: { onDeleted: () => void }) {
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      await api.downloadData();
+      setMessage("Your data export is ready.");
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : "Unable to export your data.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    if (
+      !window.confirm(
+        "Delete your account and all persisted meeting data? This cannot be undone.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.deleteAccount();
+      onDeleted();
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : "Unable to delete your account.",
+      );
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="page privacy-page">
+      <section className="welcome">
+        <div>
+          <p className="eyebrow">PRIVACY CONTROLS</p>
+          <h1>Keep control of your workspace.</h1>
+          <p className="lead">
+            Export your persisted records or permanently delete this account.
+          </p>
+        </div>
+      </section>
+      <section className="panel privacy-card">
+        <h2>My data</h2>
+        <p className="muted">
+          The export contains your profile, meetings, transcripts, decisions,
+          risks, and open questions in JSON format.
+        </p>
+        <button className="primary" onClick={download} disabled={busy}>
+          Download my data
+        </button>
+      </section>
+      <section className="panel privacy-card danger-card">
+        <h2>Delete account</h2>
+        <p className="muted">
+          This permanently removes your account, persisted meeting records,
+          recordings metadata, actions, and notifications.
+        </p>
+        <button
+          className="outline danger-button"
+          onClick={remove}
+          disabled={busy}
+        >
+          Delete my account
+        </button>
+      </section>
+      {message && <p className="api-notice">{message}</p>}
     </div>
   );
 }

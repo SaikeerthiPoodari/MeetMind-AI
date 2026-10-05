@@ -111,6 +111,19 @@ def test_user_preferences_are_persisted_and_validated(client):
     assert updated.json()['language'] == 'hi'
     assert client.patch('/api/me', headers=headers, json={'language': 'xx'}).status_code == 422
 
+def test_privacy_export_and_account_deletion_are_authorized(client):
+    email = f"privacy-{uuid4()}@example.com"
+    registration = client.post('/api/auth/register', json={'email': email, 'password': 'StrongPass123!'})
+    headers = {'Authorization': f"Bearer {registration.json()['access_token']}"}
+    exported = client.get('/api/me/export', headers=headers)
+    assert exported.status_code == 200 and exported.json()['user']['email'] == email
+    deleted = client.delete('/api/me', headers=headers)
+    assert deleted.status_code == 204
+    assert client.get('/api/me', headers=headers).status_code == 401
+
+def test_non_admin_cannot_read_audit_logs(client):
+    assert client.get('/api/admin/audit-logs', headers=auth_headers(client)).status_code == 403
+
 def test_notifications_are_created_and_markable(client):
     headers = auth_headers(client)
     demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])

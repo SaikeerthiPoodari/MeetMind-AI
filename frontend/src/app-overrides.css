@@ -158,3 +158,22 @@
 .auth-switch {
   margin-top: 20px;
 }
+.privacy-card {
+  max-width: 700px;
+  margin: 0 auto 18px;
+}
+.privacy-card h2 {
+  margin-bottom: 8px;
+}
+.privacy-card .muted {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 18px;
+}
+.danger-card {
+  border-color: #efc9ce;
+}
+.danger-button {
+  color: #c94d5b;
+  border-color: #e8b5bc;
+}

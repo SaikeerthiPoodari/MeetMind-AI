@@ -72,6 +72,36 @@ export const api = {
     token = "";
     localStorage.removeItem("meetmind_token");
   },
+  downloadData: async () => {
+    const response = await fetch(`${API_URL}/api/me/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok)
+      throw new Error(
+        (await response.json().catch(() => null))?.detail ??
+          "Data export failed",
+      );
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "meetmind-my-data.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  },
+  deleteAccount: async () => {
+    const response = await fetch(`${API_URL}/api/me`, {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok)
+      throw new Error(
+        (await response.json().catch(() => null))?.detail ??
+          "Account deletion failed",
+      );
+    token = "";
+    localStorage.removeItem("meetmind_token");
+  },
   async bootstrap() {
     if (token) {
       await request("/api/me").catch(async () => {

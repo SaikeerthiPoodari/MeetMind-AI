@@ -8,12 +8,12 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, st
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from fastapi.responses import Response
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSession, Notification, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
+from .models import ActionItem, AuditLog, Decision, Meeting, MeetingQuestion, MeetingSession, Notification, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
 from .storage import store_bytes
 from .transcription.parser import parse_text
 from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
@@ -101,6 +101,11 @@ def action_json(action: ActionItem):
 def meeting_json(meeting: Meeting):
     return {"id": meeting.id, "title": meeting.title, "description": meeting.description, "status": meeting.status, "is_demo": meeting.is_demo, "summary": meeting.summary, "created_at": meeting.created_at.isoformat(), "actions": [action_json(a) for a in meeting.actions]}
 def owned_id(db: Session, meeting_id: str, user: User) -> str: return user_meeting(db, meeting_id, user).id
+def audit(db: Session, user: User, action: str, resource_type: str = "", resource_id: str = "", metadata: dict | None = None) -> None:
+    db.add(AuditLog(user_id=user.id, action=action, resource_type=resource_type, resource_id=resource_id, metadata_json=json.dumps(metadata or {})))
+def require_admin(user: User) -> User:
+    if user.role != "ADMIN": raise HTTPException(403, "Administrator role required")
+    return user
 
 def report_lines(payload: dict, markdown: bool = False) -> list[str]:
     title = f"# {payload['meeting']['title']}" if markdown else payload["meeting"]["title"]
@@ -164,13 +169,14 @@ def health():
 def register(credentials: Credentials, db: Session = Depends(get_db)):
     email = credentials.email.lower()
     if db.scalar(select(User).where(User.email == email)): raise HTTPException(409, "An account with this email already exists")
-    user = User(email=email, password_hash=hash_password(credentials.password)); db.add(user); db.commit(); db.refresh(user)
+    user = User(email=email, password_hash=hash_password(credentials.password)); db.add(user); db.flush(); audit(db, user, "account.created", "user", user.id); db.commit(); db.refresh(user)
     return {"access_token": create_token(user), "token_type": "bearer", "user": {"id": user.id, "email": user.email, "role": user.role}}
 
 @app.post("/api/auth/login")
 def login(credentials: Credentials, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == credentials.email.lower()))
     if not user or not verify_password(credentials.password, user.password_hash): raise HTTPException(401, "Invalid email or password")
+    audit(db, user, "auth.login", "user", user.id); db.commit()
     return {"access_token": create_token(user), "token_type": "bearer", "user": {"id": user.id, "email": user.email, "role": user.role}}
 
 @app.post("/api/auth/logout")
@@ -187,6 +193,39 @@ def update_profile(payload: PreferenceUpdate, user: User = Depends(current_user)
     if not preferences: preferences = UserPreference(user_id=user.id); db.add(preferences)
     preferences.language = payload.language; preferences.timezone = payload.timezone; preferences.notifications_enabled = payload.notifications_enabled; db.commit(); db.refresh(preferences)
     return {"id": user.id, "email": user.email, "role": user.role, "language": preferences.language, "timezone": preferences.timezone, "notifications_enabled": preferences.notifications_enabled}
+
+@app.get("/api/me/export")
+def export_user_data(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meetings = db.scalars(select(Meeting).where(Meeting.owner_id == user.id).order_by(Meeting.created_at)).all()
+    payload = {"user": {"id": user.id, "email": user.email, "role": user.role, "created_at": user.created_at.isoformat()}, "meetings": []}
+    for meeting in meetings:
+        payload["meetings"].append({
+            "meeting": meeting_json(meeting),
+            "transcript": [{"timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all()],
+            "decisions": [{"decision": x.decision, "speaker": x.speaker, "timestamp": x.timestamp, "evidence": x.evidence} for x in db.scalars(select(Decision).where(Decision.meeting_id == meeting.id)).all()],
+            "risks": [{"risk": x.risk, "severity": x.severity, "recommendation": x.recommendation} for x in db.scalars(select(Risk).where(Risk.meeting_id == meeting.id)).all()],
+            "questions": [{"question": x.question, "speaker": x.speaker, "timestamp": x.timestamp} for x in db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == meeting.id)).all()],
+        })
+    audit(db, user, "privacy.data_exported", "user", user.id); db.commit()
+    return Response(content=json.dumps(payload, indent=2), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="meetmind-user-{user.id}.json"'})
+
+@app.delete("/api/me", status_code=204)
+def delete_account(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting_ids = select(Meeting.id).where(Meeting.owner_id == user.id)
+    for model in (ActionItem, Recording, TranscriptSegment, Decision, Risk, OpenQuestion, MeetingSession, MeetingQuestion):
+        db.execute(delete(model).where(model.meeting_id.in_(meeting_ids)))
+    db.execute(delete(Meeting).where(Meeting.owner_id == user.id))
+    db.execute(delete(Notification).where(Notification.user_id == user.id))
+    db.execute(delete(UserPreference).where(UserPreference.user_id == user.id))
+    db.execute(delete(AuditLog).where(AuditLog.user_id == user.id))
+    db.delete(user); db.commit()
+    return Response(status_code=204)
+
+@app.get("/api/admin/audit-logs")
+def admin_audit_logs(limit: int = Query(100, ge=1, le=500), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    require_admin(user)
+    items = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)).all()
+    return {"items": [{"id": x.id, "user_id": x.user_id, "action": x.action, "resource_type": x.resource_type, "resource_id": x.resource_id, "metadata": json.loads(x.metadata_json or "{}"), "created_at": x.created_at.isoformat()} for x in items], "total": len(items)}
 
 @app.get("/api/meetings")
 def list_meetings(user: User = Depends(current_user), db: Session = Depends(get_db)):
