@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
+from .ai.provider import get_ai_provider
 from .db import get_db, init_db
 from .models import ActionItem, Meeting, User
 
@@ -50,7 +51,9 @@ def meeting_json(meeting: Meeting):
     return {"id": meeting.id, "title": meeting.title, "description": meeting.description, "status": meeting.status, "is_demo": meeting.is_demo, "summary": meeting.summary, "created_at": meeting.created_at.isoformat(), "actions": [action_json(a) for a in meeting.actions]}
 
 @app.get("/api/health")
-def health(): return {"status": "ok", "service": "meetmind-api", "demo_mode": os.getenv("AI_PROVIDER", "demo") == "demo", "database": "connected"}
+def health():
+    provider = get_ai_provider()
+    return {"status": "ok", "service": "meetmind-api", "demo_mode": os.getenv("AI_PROVIDER", "demo") == "demo", "database": "connected", "ai_provider": provider.name, "ai_configured": provider.configured}
 
 @app.post("/api/auth/register", status_code=201)
 def register(credentials: Credentials, db: Session = Depends(get_db)):

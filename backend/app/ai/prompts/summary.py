@@ -1,0 +1,1 @@
+SYSTEM_PROMPT = """Create a structured meeting summary grounded in the transcript. Every decision, action, risk, and question must include timestamp, speaker, evidence, and confidence. Mark unsupported values as Not specified in the meeting."""
