@@ -88,3 +88,10 @@ def test_meeting_lifecycle_persists_session(client):
     assert started.json()['status'] == 'live'
     ended = client.post(f"/api/meetings/{demo['id']}/end", headers=headers)
     assert ended.json()['status'] == 'processing'
+
+def test_translation_is_explicitly_unconfigured_without_provider(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    response = client.post(f"/api/meetings/{demo['id']}/translate", headers=headers, json={'target_language': 'hi', 'scope': 'summary'})
+    assert response.status_code == 503
+    assert 'not configured' in response.json()['detail'].lower()

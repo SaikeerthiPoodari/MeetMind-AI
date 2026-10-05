@@ -12,6 +12,7 @@ from .db import get_db, init_db
 from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSession, OpenQuestion, Recording, Risk, TranscriptSegment, User
 from .storage import store_bytes
 from .transcription.parser import parse_text
+from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
 
 app = FastAPI(title="MeetMind AI API", version="1.1.0", description="Evidence-based meeting intelligence API")
 app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -58,6 +59,9 @@ class ActionUpdate(BaseModel):
     status: str | None = None
     deadline: str | None = None
     priority: str | None = None
+class TranslationRequest(BaseModel):
+    target_language: str = Field(min_length=2, max_length=5)
+    scope: str = Field(default="summary", pattern="^(summary|transcript)$")
 
 def user_meeting(db: Session, meeting_id: str, user: User) -> Meeting:
     statement = select(Meeting).where(Meeting.owner_id == user.id, Meeting.is_demo.is_(True)) if meeting_id == "apollo-demo" else select(Meeting).where(Meeting.id == meeting_id, Meeting.owner_id == user.id)
@@ -73,7 +77,8 @@ def owned_id(db: Session, meeting_id: str, user: User) -> str: return user_meeti
 @app.get("/api/health")
 def health():
     provider = get_ai_provider()
-    return {"status": "ok", "service": "meetmind-api", "demo_mode": os.getenv("AI_PROVIDER", "demo") == "demo", "database": "connected", "ai_provider": provider.name, "ai_configured": provider.configured}
+    translation = get_translation_provider()
+    return {"status": "ok", "service": "meetmind-api", "demo_mode": os.getenv("AI_PROVIDER", "demo") == "demo", "database": "connected", "ai_provider": provider.name, "ai_configured": provider.configured, "translation_provider": translation.name, "translation_configured": translation.configured}
 
 @app.post("/api/auth/register", status_code=201)
 def register(credentials: Credentials, db: Session = Depends(get_db)):
@@ -123,6 +128,15 @@ def risks(meeting_id: str, user: User = Depends(current_user), db: Session = Dep
 def questions(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == owned_id(db, meeting_id, user))).all()
     return {"items": [{"id": x.id, "question": x.question, "speaker": x.speaker, "timestamp": x.timestamp, "status": x.status} for x in items]}
+
+@app.post("/api/meetings/{meeting_id}/translate")
+def translate_meeting(meeting_id: str, payload: TranslationRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    if payload.target_language not in SUPPORTED_LANGUAGES: raise HTTPException(422, f"Unsupported target language. Choose one of: {', '.join(sorted(SUPPORTED_LANGUAGES))}")
+    provider = get_translation_provider()
+    if not provider.configured: raise HTTPException(503, "Translation provider not configured. Set TRANSLATION_PROVIDER and its credentials before requesting translated output.")
+    source = meeting.summary if payload.scope == "summary" else "\n".join(x.text for x in db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all())
+    return {"meeting_id": meeting.id, "source_language": "und", "target_language": payload.target_language, "scope": payload.scope, "translated_text": provider.translate(source, payload.target_language)}
 
 @app.get("/api/search")
 def search(q: str = Query(min_length=2, max_length=200), user: User = Depends(current_user), db: Session = Depends(get_db)):
