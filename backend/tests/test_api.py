@@ -23,11 +23,12 @@ def test_demo_meeting_is_authorized_and_persistent(client):
     assert response.status_code == 200
     data = response.json()
     assert data['total'] >= 1
-    assert data['items'][0]['actions']
+    assert next(item for item in data['items'] if item['is_demo'])['actions']
 
 def test_ask_refuses_unknown_facts(client):
     meetings = client.get('/api/meetings', headers=auth_headers(client)).json()['items']
-    response = client.post(f"/api/meetings/{meetings[0]['id']}/ask", headers=auth_headers(client), json={'question': 'What was the office catering vendor?'})
+    demo = next(item for item in meetings if item['is_demo'])
+    response = client.post(f"/api/meetings/{demo['id']}/ask", headers=auth_headers(client), json={'question': 'What was the office catering vendor?'})
     assert response.status_code == 200
     assert response.json()['evidence'] == []
 

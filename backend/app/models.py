@@ -52,3 +52,42 @@ class Recording(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(30), default="uploaded")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+class TranscriptSegment(Base):
+    __tablename__ = "transcript_segments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    timestamp: Mapped[str] = mapped_column(String(20), index=True)
+    speaker: Mapped[str] = mapped_column(String(120))
+    text: Mapped[str] = mapped_column(Text)
+    topic: Mapped[str] = mapped_column(String(120), default="")
+
+class Decision(Base):
+    __tablename__ = "decisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    decision: Mapped[str] = mapped_column(Text)
+    speaker: Mapped[str] = mapped_column(String(120))
+    timestamp: Mapped[str] = mapped_column(String(20))
+    evidence: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(30), default="CONFIRMED")
+
+class Risk(Base):
+    __tablename__ = "risks"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    risk: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(String(20))
+    timestamp: Mapped[str] = mapped_column(String(20))
+    recommendation: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="OPEN")
+
+class OpenQuestion(Base):
+    __tablename__ = "open_questions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    question: Mapped[str] = mapped_column(Text)
+    speaker: Mapped[str] = mapped_column(String(120))
+    timestamp: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(30), default="OPEN")
