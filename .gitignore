@@ -4,6 +4,7 @@ dist/
 __pycache__/
 *.pyc
 *.tsbuildinfo
+*.log
 .env
 .pytest_cache/
 uploads/
