@@ -235,6 +235,39 @@ export const api = {
         topic: string;
       }>;
     }>(`/api/meetings/${meetingId}/transcript`),
+  decisions: (meetingId: string) =>
+    request<{
+      items: Array<{
+        id: string;
+        decision: string;
+        speaker: string;
+        timestamp: string;
+        evidence: string;
+        confidence: number;
+        status: string;
+      }>;
+    }>(`/api/meetings/${meetingId}/decisions`),
+  risks: (meetingId: string) =>
+    request<{
+      items: Array<{
+        id: string;
+        risk: string;
+        severity: string;
+        timestamp: string;
+        recommendation: string;
+        status: string;
+      }>;
+    }>(`/api/meetings/${meetingId}/risks`),
+  questions: (meetingId: string) =>
+    request<{
+      items: Array<{
+        id: string;
+        question: string;
+        speaker: string;
+        timestamp: string;
+        status: string;
+      }>;
+    }>(`/api/meetings/${meetingId}/questions`),
   profile: () =>
     request<{
       id: string;

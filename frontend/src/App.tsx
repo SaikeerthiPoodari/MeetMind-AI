@@ -626,12 +626,58 @@ function Meeting({
     | typeof demoSegments
     | Array<{ timestamp: string; speaker: string; text: string; topic: string }>
   >(demoSegments);
+  const [decisions, setDecisions] = useState<
+    Array<{
+      id: string;
+      decision: string;
+      speaker: string;
+      timestamp: string;
+      evidence: string;
+      confidence: number;
+      status: string;
+    }>
+  >([]);
+  const [risks, setRisks] = useState<
+    Array<{
+      id: string;
+      risk: string;
+      severity: string;
+      timestamp: string;
+      recommendation: string;
+      status: string;
+    }>
+  >([]);
+  const [questions, setQuestions] = useState<
+    Array<{
+      id: string;
+      question: string;
+      speaker: string;
+      timestamp: string;
+      status: string;
+    }>
+  >([]);
   useEffect(() => {
-    if (meeting && !meeting.is_demo)
+    if (!meeting) return;
+    if (!meeting.is_demo)
       api
         .transcript(meeting.id)
         .then((r) => setSegments(r.items))
-        .catch(() => {});
+        .catch(() => setSegments([]));
+    Promise.all([
+      api.decisions(meeting.id),
+      api.risks(meeting.id),
+      api.questions(meeting.id),
+    ])
+      .then(([decisionData, riskData, questionData]) => {
+        setDecisions(decisionData.items);
+        setRisks(riskData.items);
+        setQuestions(questionData.items);
+      })
+      .catch(() => {
+        setDecisions([]);
+        setRisks([]);
+        setQuestions([]);
+      });
   }, [meeting]);
   if (!meeting)
     return (
@@ -918,31 +964,59 @@ function Meeting({
             <section className="panel">
               <div className="panel-head">
                 <h2>Decisions</h2>
-                <span className="count">3</span>
+                <span className="count">{decisions.length}</span>
               </div>
-              <Decision title="PostgreSQL for reporting" source="12:41" />
-              <Decision title="Friday beta deployment" source="28:15" />
-              <Decision title="Wednesday readiness review" source="28:15" />
+              {decisions.map((item) => (
+                <Decision
+                  key={item.id}
+                  title={item.decision}
+                  source={`${item.timestamp} · ${item.speaker}`}
+                />
+              ))}
+              {decisions.length === 0 && (
+                <p className="muted">No persisted decisions.</p>
+              )}
             </section>
             <section className="panel risk-panel">
               <div className="panel-head">
                 <h2>Risk radar</h2>
-                <span className="severity">2 open</span>
+                <span className="severity">{risks.length} open</span>
               </div>
-              <div className="risk">
-                <span className="risk-bar high" />
-                <div>
-                  <strong>Security approval pending</strong>
-                  <p>High · evidence at 23:17</p>
+              {risks.map((item) => (
+                <div className="risk" key={item.id}>
+                  <span className={`risk-bar ${item.severity.toLowerCase()}`} />
+                  <div>
+                    <strong>{item.risk}</strong>
+                    <p>
+                      {item.severity} · evidence at {item.timestamp}
+                    </p>
+                    <small className="muted">{item.recommendation}</small>
+                  </div>
                 </div>
+              ))}
+              {risks.length === 0 && (
+                <p className="muted">No persisted risks.</p>
+              )}
+            </section>
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Open questions</h2>
+                <span className="count">{questions.length}</span>
               </div>
-              <div className="risk">
-                <span className="risk-bar medium" />
-                <div>
-                  <strong>Data residency unresolved</strong>
-                  <p>Medium · evidence at 31:04</p>
+              {questions.map((item) => (
+                <div className="risk" key={item.id}>
+                  <span className="risk-bar medium" />
+                  <div>
+                    <strong>{item.question}</strong>
+                    <p>
+                      {item.speaker} · evidence at {item.timestamp}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ))}
+              {questions.length === 0 && (
+                <p className="muted">No persisted open questions.</p>
+              )}
             </section>
           </section>
         </div>
