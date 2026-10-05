@@ -89,6 +89,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ title, description }),
     }),
+  getMeeting: (meetingId: string) =>
+    request<ApiMeeting>(`/api/meetings/${meetingId}`),
   upload: async (meetingId: string, file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -116,6 +118,8 @@ export const api = {
     request(`/api/meetings/${meetingId}/start`, { method: "POST" }),
   end: (meetingId: string) =>
     request(`/api/meetings/${meetingId}/end`, { method: "POST" }),
+  process: (meetingId: string) =>
+    request(`/api/meetings/${meetingId}/process`, { method: "POST" }),
   transcript: (meetingId: string) =>
     request<{
       items: Array<{

@@ -4,6 +4,8 @@ import {
   Activity,
   ArrowUpRight,
   Bell,
+  Camera,
+  CameraOff,
   CheckCircle2,
   ChevronRight,
   Clock3,
@@ -11,11 +13,14 @@ import {
   Filter,
   LayoutDashboard,
   Menu,
+  Mic,
+  MicOff,
   Mic2,
   Moon,
   Plus,
   Search,
   Sparkles,
+  Square,
   Target,
   Users,
   Zap,
@@ -30,7 +35,7 @@ import ml from "./locales/ml.json";
 import mr from "./locales/mr.json";
 import bn from "./locales/bn.json";
 
-type Page = "dashboard" | "meeting" | "actions" | "new" | "search";
+type Page = "dashboard" | "meeting" | "actions" | "new" | "search" | "room";
 const demoSegments = [
   [
     "00:00",
@@ -293,6 +298,7 @@ export default function App() {
             meetings={meetings}
             actions={actions}
             onNew={() => setPage("new")}
+            onRoom={() => setPage("room")}
             onOpen={openMeeting}
           />
         )}{" "}
@@ -317,6 +323,16 @@ export default function App() {
           />
         )}
         {page === "search" && <SearchPage onOpen={openMeeting} />}
+        {page === "room" && (
+          <Room
+            onBack={() => setPage("dashboard")}
+            onDone={(meeting) => {
+              setMeetings([meeting, ...meetings]);
+              setSelected(meeting);
+              setPage("meeting");
+            }}
+          />
+        )}
       </main>
     </div>
   );
@@ -354,6 +370,7 @@ function Dashboard({
   meetings: ApiMeeting[];
   actions: ApiAction[];
   onNew: () => void;
+  onRoom: () => void;
   onOpen: (m?: ApiMeeting | null) => void;
 }) {
   const demo = meetings.find((m) => m.is_demo);
@@ -450,7 +467,7 @@ function Dashboard({
           ) : (
             <p className="muted">No meetings yet. Create one to begin.</p>
           )}
-          <button className="outline wide" onClick={onNew}>
+          <button className="outline wide" onClick={onRoom}>
             <Mic2 size={16} /> Start a live recording
           </button>
         </section>
@@ -891,6 +908,237 @@ function Actions({
     </div>
   );
 }
+function Room({
+  onBack,
+  onDone,
+}: {
+  onBack: () => void;
+  onDone: (meeting: ApiMeeting) => void;
+}) {
+  const [title, setTitle] = useState("Live meeting");
+  const [consent, setConsent] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [micOn, setMicOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(true);
+  const [elapsed, setElapsed] = useState(0);
+  const [message, setMessage] = useState("");
+  const streamRef = useRef<MediaStream | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const meetingRef = useRef<ApiMeeting | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const startedAtRef = useRef(0);
+
+  useEffect(() => {
+    if (!recording) return;
+    const timer = window.setInterval(
+      () => setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [recording]);
+
+  useEffect(() => {
+    return () =>
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const start = async () => {
+    if (!title.trim() || !consent) return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setMessage("This browser does not support local camera recording.");
+      return;
+    }
+    setBusy(true);
+    setMessage("Requesting camera and microphone access...");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => undefined);
+      }
+      const meeting = await api.createMeeting(title.trim());
+      await api.join(meeting.id);
+      await api.start(meeting.id);
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunksRef.current.push(event.data);
+      };
+      recorder.start(1000);
+      recorderRef.current = recorder;
+      startedAtRef.current = Date.now();
+      setElapsed(0);
+      setRecording(true);
+      setMessage(
+        "Recording locally in this browser. You can stop at any time.",
+      );
+      meetingRef.current = meeting;
+    } catch (e) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      setMessage(
+        e instanceof Error ? e.message : "Unable to start the meeting room.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    const meeting = meetingRef.current;
+    const recorder = recorderRef.current;
+    if (!meeting || !recorder) return;
+    setBusy(true);
+    setRecording(false);
+    setMessage("Saving recording and preparing the meeting...");
+    try {
+      await new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+        recorder.stop();
+      });
+      const blob = new Blob(chunksRef.current, {
+        type: recorder.mimeType || "video/webm",
+      });
+      const file = new File([blob], `${title.trim() || "meeting"}.webm`, {
+        type: blob.type,
+      });
+      await api.upload(meeting.id, file);
+      await api.end(meeting.id);
+      await api.process(meeting.id);
+      const saved = await api.getMeeting(meeting.id);
+      onDone(saved);
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : "Unable to save the recording.",
+      );
+    } finally {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      recorderRef.current = null;
+      meetingRef.current = null;
+      setBusy(false);
+    }
+  };
+
+  const toggleMic = () => {
+    const next = !micOn;
+    streamRef.current
+      ?.getAudioTracks()
+      .forEach((track) => (track.enabled = next));
+    setMicOn(next);
+  };
+  const toggleCamera = () => {
+    const next = !cameraOn;
+    streamRef.current
+      ?.getVideoTracks()
+      .forEach((track) => (track.enabled = next));
+    setCameraOn(next);
+  };
+  const time = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
+
+  return (
+    <div className="page">
+      <button
+        className="back-btn"
+        onClick={onBack}
+        disabled={busy || recording}
+      >
+        ← Back to overview
+      </button>
+      <section className="welcome">
+        <div>
+          <p className="eyebrow">MEETMIND MEETING ROOM</p>
+          <h1>Capture the conversation.</h1>
+          <p className="lead">
+            A local browser recording is saved to a persisted meeting when you
+            stop.
+          </p>
+        </div>
+        {recording && (
+          <span className="live-tag">
+            <i /> {time}
+          </span>
+        )}
+      </section>
+      <section className="panel room-panel">
+        <div className="room-video-wrap">
+          <video ref={videoRef} muted playsInline className="room-video" />
+          {!recording && (
+            <div className="room-placeholder">
+              <Camera size={30} />
+              <span>Camera preview appears after you start</span>
+            </div>
+          )}
+        </div>
+        {!recording && (
+          <div className="room-setup">
+            <label className="eyebrow">
+              MEETING TITLE
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                disabled={busy}
+              />
+            </label>
+            <label className="room-consent">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+                disabled={busy}
+              />
+              I consent to capture camera and microphone in this browser.
+            </label>
+            <button
+              className="primary"
+              onClick={start}
+              disabled={busy || !consent || !title.trim()}
+            >
+              <Camera size={16} /> {busy ? "Starting..." : "Start recording"}
+            </button>
+          </div>
+        )}
+        {recording && (
+          <div className="room-controls">
+            <button
+              className="icon-btn"
+              onClick={toggleMic}
+              title={micOn ? "Mute microphone" : "Unmute microphone"}
+            >
+              {micOn ? <Mic /> : <MicOff />}
+            </button>
+            <button
+              className="icon-btn"
+              onClick={toggleCamera}
+              title={cameraOn ? "Turn camera off" : "Turn camera on"}
+            >
+              {cameraOn ? <Camera /> : <CameraOff />}
+            </button>
+            <button
+              className="primary stop-recording"
+              onClick={stop}
+              disabled={busy}
+            >
+              <Square size={14} /> {busy ? "Saving..." : "Stop and save"}
+            </button>
+          </div>
+        )}
+        {message && <p className="muted room-message">{message}</p>}
+        <p className="room-note">
+          This room captures one local browser participant. Multi-user WebRTC,
+          TURN, live captions, and external transcription require provider
+          configuration.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function NewMeeting({
   onBack,
   onDone,
