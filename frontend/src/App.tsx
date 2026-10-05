@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
+  BarChart3,
   Bell,
+  CalendarDays,
   Camera,
   CameraOff,
   CheckCircle2,
@@ -20,10 +22,15 @@ import {
   Moon,
   Plus,
   Search,
+  Settings,
   Sparkles,
   Square,
+  MessageCircle,
+  Send,
+  X,
   Target,
   Users,
+  Video,
   Zap,
 } from "lucide-react";
 import { api, ApiAction, ApiMeeting } from "./api";
@@ -45,7 +52,11 @@ type Page =
   | "room"
   | "privacy"
   | "admin"
-  | "providers";
+  | "providers"
+  | "calendar"
+  | "analytics"
+  | "settings"
+  | "profile";
 const demoSegments = [
   [
     "00:00",
@@ -107,11 +118,16 @@ export default function App() {
   const [error, setError] = useState("");
   const [authRequired, setAuthRequired] = useState(false);
   const [role, setRole] = useState("");
+  const [profileData, setProfileData] = useState({ full_name: "", email: "", avatar_url: "" });
   const [language, setLanguage] = useState("en");
   const [notifications, setNotifications] = useState<
     Array<{ id: string; title: string; body: string; read: boolean }>
   >([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantQuestion, setAssistantQuestion] = useState("");
+  const [assistantBusy, setAssistantBusy] = useState(false);
+  const [assistantMessages, setAssistantMessages] = useState<Array<{ question: string; answer: string; type: string; confidence: number; evidence: Array<{ meeting?: string; timestamp: string; speaker: string; text: string; type: string }> }>>([]);
   const catalogs = { en, hi, te, ta, kn, ml, mr, bn } as const;
   const copy = catalogs[language as keyof typeof catalogs] ?? en;
   useEffect(() => {
@@ -122,6 +138,16 @@ export default function App() {
         setActions(actions);
         const demo = meetings.find((m) => m.is_demo);
         if (demo) setSelected(demo);
+        const invite = new URLSearchParams(window.location.search).get("join");
+        if (invite) {
+          api.joinByLink(invite)
+            .then((result) => {
+              setSelected(result.meeting);
+              setPage("meeting");
+              window.history.replaceState({}, "", window.location.pathname);
+            })
+            .catch((e) => setError(e instanceof Error ? e.message : "Unable to join meeting link"));
+        }
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : "API unavailable");
@@ -131,10 +157,15 @@ export default function App() {
       .then(([profile, notificationData]) => {
         setLanguage(profile.language);
         setRole(profile.role);
+        setProfileData({ full_name: profile.full_name, email: profile.email, avatar_url: profile.avatar_url });
         setNotifications(notificationData.items);
       })
       .catch(() => undefined);
   }, []);
+  useEffect(() => {
+    setAssistantMessages([]);
+    setAssistantQuestion("");
+  }, [selected?.id]);
   const changeLanguage = async (next: string) => {
     try {
       const profile = await api.profile();
@@ -163,6 +194,10 @@ export default function App() {
     setSelected(null);
     setAuthRequired(true);
   };
+  const saveProfile = async (payload: { full_name?: string; avatar_url?: string }) => {
+    const updated = await api.updateProfile(payload);
+    setProfileData({ full_name: updated.full_name, email: profileData.email, avatar_url: updated.avatar_url });
+  };
   const openMeeting = (meeting: ApiMeeting | null = selected) => {
     if (meeting) {
       setSelected(meeting);
@@ -175,6 +210,20 @@ export default function App() {
       openMeeting(meeting);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to open meeting");
+    }
+  };
+  const askAssistant = async (question = assistantQuestion) => {
+    const trimmed = question.trim();
+    if (!trimmed || assistantBusy) return;
+    setAssistantQuestion("");
+    setAssistantBusy(true);
+    try {
+      const result = await api.assistant({ question: trimmed, meeting_id: selected?.id, current_page: page });
+      setAssistantMessages((items) => [...items, { question: trimmed, answer: result.answer, type: result.answer_type, confidence: result.confidence, evidence: result.evidence }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Assistant unavailable");
+    } finally {
+      setAssistantBusy(false);
     }
   };
   if (authRequired) {
@@ -191,14 +240,14 @@ export default function App() {
             meetmind<span className="muted">.ai</span>
           </span>
         </div>
-        <div className="workspace">
-          <div className="avatar">JD</div>
+          <button className="workspace" onClick={() => setPage("profile")}>
+          <div className="avatar">{profileData.avatar_url ? <img src={profileData.avatar_url} alt="Profile" /> : (profileData.full_name || "JD").slice(0, 2).toUpperCase()}</div>
           <div>
-            <strong>Jordan Davis</strong>
+            <strong>{profileData.full_name || "Jordan Davis"}</strong>
             <small>Product workspace</small>
           </div>
           <ChevronRight size={15} />
-        </div>
+        </button>
         <nav>
           <Nav
             icon={<LayoutDashboard />}
@@ -226,6 +275,30 @@ export default function App() {
             label={copy.search}
             active={page === "search"}
             onClick={() => setPage("search")}
+          />
+          <Nav
+            icon={<CalendarDays />}
+            label="Calendar"
+            active={page === "calendar"}
+            onClick={() => setPage("calendar")}
+          />
+          <Nav
+            icon={<BarChart3 />}
+            label="Analytics"
+            active={page === "analytics"}
+            onClick={() => setPage("analytics")}
+          />
+          <Nav
+            icon={<Settings />}
+            label="Settings"
+            active={page === "settings"}
+            onClick={() => setPage("settings")}
+          />
+          <Nav
+            icon={<Video />}
+            label="Meeting room"
+            active={page === "room"}
+            onClick={() => setPage("room")}
           />
           <Nav
             icon={<Sparkles />}
@@ -283,7 +356,15 @@ export default function App() {
                             ? "Admin audit log"
                             : page === "providers"
                               ? "Provider status"
-                              : "Overview"}
+                              : page === "calendar"
+                                ? "Calendar"
+                                : page === "analytics"
+                                  ? "Workspace analytics"
+                                  : page === "settings"
+                                    ? "Settings"
+                                    : page === "profile"
+                                      ? "Profile"
+                                      : "Overview"}
             </strong>
           </div>
           <div className="top-actions">
@@ -326,12 +407,8 @@ export default function App() {
             <button className="icon-btn" onClick={() => setDark(!dark)}>
               {dark ? <Zap size={18} /> : <Moon size={18} />}
             </button>
-            <button
-              className="avatar avatar-sm"
-              onClick={signOut}
-              title="Sign out"
-            >
-              JD
+            <button className="avatar avatar-sm" onClick={() => setPage("profile")} title="Open profile">
+              {profileData.avatar_url ? <img src={profileData.avatar_url} alt="Profile" /> : (profileData.full_name || "JD").slice(0, 2).toUpperCase()}
             </button>
           </div>
           {showNotifications && (
@@ -372,6 +449,10 @@ export default function App() {
             meeting={selected}
             meetings={meetings}
             onBack={() => setPage("dashboard")}
+            onAskAI={() => {
+              setAssistantQuestion("");
+              setAssistantOpen(true);
+            }}
           />
         )}{" "}
         {page === "actions" && (
@@ -403,9 +484,23 @@ export default function App() {
         )}
         {page === "admin" && role === "ADMIN" && <AdminPage />}
         {page === "providers" && <ProviderPage />}
+        {page === "calendar" && <CalendarPage meetings={meetings} onOpen={openMeeting} />}
+        {page === "analytics" && <AnalyticsPage meetings={meetings} actions={actions} />}
+        {page === "settings" && <SettingsPage language={language} onLanguageChange={changeLanguage} />}
+        {page === "profile" && <ProfilePage profile={profileData} onSave={saveProfile} onSignOut={signOut} />}
       </main>
+      <button className="assistant-launcher" onClick={() => setAssistantOpen(!assistantOpen)} aria-label="Open AI assistant">
+        {assistantOpen ? <X size={19} /> : <MessageCircle size={19} />}
+        <span>AI Assistant</span>
+      </button>
+      {assistantOpen && <AssistantPanel meetingTitle={selected?.title} messages={assistantMessages} question={assistantQuestion} busy={assistantBusy} onQuestion={setAssistantQuestion} onAsk={askAssistant} onClose={() => setAssistantOpen(false)} />}
     </div>
   );
+}
+
+function AssistantPanel({ meetingTitle, messages, question, busy, onQuestion, onAsk, onClose }: { meetingTitle?: string; messages: Array<{ question: string; answer: string; type: string; confidence: number; evidence: Array<{ meeting?: string; timestamp: string; speaker: string; text: string; type: string }> }>; question: string; busy: boolean; onQuestion: (value: string) => void; onAsk: (question?: string) => void; onClose: () => void }) {
+  const quick = ["What was decided?", "What are the open actions?", "What risks need attention?", "What remains unresolved?"];
+  return <aside className="assistant-panel"><div className="assistant-head"><div><p className="eyebrow"><Sparkles size={13} /> GROUNDED ASSISTANT</p><strong>MeetMind copilot</strong><small>Using your authorized meeting data</small></div><button className="icon-btn" onClick={onClose} aria-label="Close assistant"><X size={16} /></button></div><div className="assistant-context"><span>Context-aware</span><span>FACTS + SUGGESTIONS</span></div><div className="assistant-scroll">{messages.length === 0 && <div className="assistant-empty"><Sparkles size={22} /><strong>What can I help you with?</strong><p>Ask about this page, the selected meeting, actions, decisions, risks, or unresolved questions.</p><div className="assistant-quick">{quick.map((item) => <button key={item} onClick={() => onAsk(item)}>{item}</button>)}</div></div>}{messages.map((message, index) => <div className="assistant-message" key={`${message.question}-${index}`}><div className="assistant-user">{message.question}</div><div className="assistant-answer"><div className="assistant-label"><span>{message.type === "FACT" ? "FACT" : "INSUFFICIENT EVIDENCE"}</span>{message.type === "FACT" && <small>{Math.round(message.confidence * 100)}% confidence</small>}</div><p>{message.answer}</p>{message.evidence.length > 0 && <div className="assistant-evidence"><strong>Evidence</strong>{message.evidence.slice(0, 3).map((item, evidenceIndex) => <button key={evidenceIndex} onClick={() => item.meeting && item.timestamp && onQuestion(`Tell me more about ${item.meeting} at ${item.timestamp}`)}><span>{item.timestamp || "record"} · {item.speaker || item.type}</span><small>{item.text}</small></button>)}</div>}</div></div>)}</div><form className="assistant-form" onSubmit={(event) => { event.preventDefault(); onAsk(); }}><input value={question} onChange={(event) => onQuestion(event.target.value)} placeholder="Ask about your meetings…" aria-label="Ask AI assistant" /><button className="primary" type="submit" disabled={busy || !question.trim()}>{busy ? "…" : <Send size={16} />}</button></form></aside>;
 }
 function Nav({
   icon,
@@ -435,6 +530,7 @@ function Dashboard({
   meetings,
   actions,
   onNew,
+  onRoom,
   onOpen,
 }: {
   meetings: ApiMeeting[];
@@ -469,6 +565,9 @@ function Dashboard({
         </div>
         <button className="primary" onClick={onNew}>
           <Plus size={17} /> Analyze a meeting
+        </button>
+        <button className="meeting-start-button" onClick={onRoom}>
+          <Video size={17} /> Start meeting
         </button>
       </section>
       <div className="metrics">
@@ -550,7 +649,7 @@ function Dashboard({
             <p className="muted">No meetings yet. Create one to begin.</p>
           )}
           <button className="outline wide" onClick={onRoom}>
-            <Mic2 size={16} /> Start a live recording
+            <Video size={16} /> Open meeting room
           </button>
         </section>
       </div>
@@ -615,10 +714,12 @@ function Meeting({
   meeting,
   meetings,
   onBack,
+  onAskAI,
 }: {
   meeting: ApiMeeting | null;
   meetings: ApiMeeting[];
   onBack: () => void;
+  onAskAI: () => void;
 }) {
   const [tab, setTab] = useState("Overview");
   const [comparison, setComparison] = useState<any>(null);
@@ -636,6 +737,7 @@ function Meeting({
   } | null>(null);
   const [followUpBusy, setFollowUpBusy] = useState(false);
   const [followUpError, setFollowUpError] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
   const [answer, setAnswer] = useState<{
     answer: string;
     confidence: number;
@@ -797,6 +899,11 @@ function Meeting({
       setFollowUpBusy(false);
     }
   };
+  const copyShareLink = async () => {
+    if (!meeting.share_url) return;
+    await navigator.clipboard?.writeText(meeting.share_url);
+    setShareOpen(true);
+  };
   return (
     <div className="page meeting-page">
       <button className="back-btn" onClick={onBack}>
@@ -837,10 +944,17 @@ function Meeting({
           >
             {followUpBusy ? "Generating..." : "Follow-up"}
           </button>
+          <button className="outline" onClick={() => setShareOpen(!shareOpen)}>
+            <Users size={16} /> Share / Join
+          </button>
+          <button className="primary" onClick={onAskAI}>
+            <Sparkles size={16} /> Ask about this meeting
+          </button>
         </div>
       </div>
       {exportError && <p className="api-notice">{exportError}</p>}
       {followUpError && <p className="api-notice">{followUpError}</p>}
+      {shareOpen && <section className="panel share-panel"><div><p className="eyebrow">INVITE PARTICIPANTS</p><h2>Share this meeting</h2><p className="muted">Anyone with an account can use this link to join. Access is granted as a meeting participant.</p><div className="share-field"><code>{meeting.share_url}</code><button className="outline" onClick={copyShareLink}>Copy link</button></div><div className="share-meta"><span><strong>Meeting ID</strong><code>{meeting.id}</code></span><span><strong>Join code</strong><code>{meeting.share_code}</code></span></div></div>{meeting.share_url && <div className="qr-card"><img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(meeting.share_url)}`} alt="QR code for meeting link" /><small>Scan to join</small></div>}</section>}
       {followUp && (
         <section className="panel follow-up-panel">
           <div className="panel-head">
@@ -1301,6 +1415,8 @@ function Actions({
 }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [message, setMessage] = useState("");
+  const [liveCaption, setLiveCaption] = useState("");
+  const [captionStatus, setCaptionStatus] = useState("Checking browser caption support...");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<
     Array<{ id: string; message: string; created_at: string }>
@@ -1397,6 +1513,8 @@ function Room({
   const [consent, setConsent] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [roomShareOpen, setRoomShareOpen] = useState(false);
+  const [roomMeeting, setRoomMeeting] = useState<ApiMeeting | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [elapsed, setElapsed] = useState(0);
@@ -1406,6 +1524,8 @@ function Room({
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const meetingRef = useRef<ApiMeeting | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const captionLinesRef = useRef<string[]>([]);
   const chunksRef = useRef<Blob[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const startedAtRef = useRef(0);
@@ -1453,13 +1573,40 @@ function Room({
       };
       recorder.start(1000);
       recorderRef.current = recorder;
+      captionLinesRef.current = [];
       startedAtRef.current = Date.now();
       setElapsed(0);
+      const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (Recognition) {
+        const recognition = new Recognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+        recognition.onresult = (event: any) => {
+          let interim = "";
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {
+            const text = event.results[index][0].transcript.trim();
+            if (event.results[index].isFinal) {
+              const captionSeconds = Math.floor((Date.now() - startedAtRef.current) / 1000);
+              const captionTime = `${String(Math.floor(captionSeconds / 60)).padStart(2, "0")}:${String(captionSeconds % 60).padStart(2, "0")}`;
+              captionLinesRef.current.push(`${captionTime} ${text}`);
+              setLiveCaption(text);
+            } else interim += text;
+          }
+          if (interim) setLiveCaption(interim);
+        };
+        recognition.onerror = () => setCaptionStatus("Browser captions unavailable for this session.");
+        recognition.onend = () => setCaptionStatus("Browser captions stopped.");
+        recognition.start();
+        recognitionRef.current = recognition;
+        setCaptionStatus("Browser captions active");
+      } else setCaptionStatus("Browser captions not available; recording continues.");
       setRecording(true);
       setMessage(
         "Recording locally in this browser. You can stop at any time.",
       );
       meetingRef.current = meeting;
+      setRoomMeeting(meeting);
       api
         .chat(meeting.id)
         .then((result) => setChatMessages(result.items))
@@ -1493,6 +1640,10 @@ function Room({
         type: blob.type,
       });
       await api.upload(meeting.id, file);
+      if (captionLinesRef.current.length) {
+        const captionFile = new File([captionLinesRef.current.join("\n")], "browser-captions.txt", { type: "text/plain" });
+        await api.upload(meeting.id, captionFile);
+      }
       await api.end(meeting.id);
       await api.process(meeting.id);
       const saved = await api.getMeeting(meeting.id);
@@ -1503,12 +1654,15 @@ function Room({
       );
     } finally {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      recognitionRef.current?.stop?.();
+      recognitionRef.current = null;
       screenRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       screenRef.current = null;
       cameraTrackRef.current = null;
       recorderRef.current = null;
       meetingRef.current = null;
+      setLiveCaption("");
       setBusy(false);
     }
   };
@@ -1611,6 +1765,7 @@ function Room({
               <span>Camera preview appears after you start</span>
             </div>
           )}
+          {recording && liveCaption && <div className="live-caption">{liveCaption}</div>}
         </div>
         {!recording && (
           <div className="room-setup">
@@ -1664,6 +1819,12 @@ function Room({
               <MonitorUp />
             </button>
             <button
+              className="outline"
+              onClick={() => setRoomShareOpen(!roomShareOpen)}
+            >
+              <Users size={15} /> Invite
+            </button>
+            <button
               className="primary stop-recording"
               onClick={stop}
               disabled={busy}
@@ -1672,7 +1833,9 @@ function Room({
             </button>
           </div>
         )}
+        {recording && roomShareOpen && roomMeeting?.share_url && <div className="room-invite"><div><strong>Invite people to this meeting</strong><p className="muted">Share the link or meeting code while you are live.</p><div className="share-field"><code>{roomMeeting.share_url}</code><button className="outline" onClick={() => navigator.clipboard?.writeText(roomMeeting.share_url || "")}>Copy link</button></div><span className="muted">Meeting ID: <code>{roomMeeting.id}</code> · Code: <code>{roomMeeting.share_code}</code></span></div><img src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(roomMeeting.share_url)}`} alt="QR code to join meeting" /></div>}
         {message && <p className="muted room-message">{message}</p>}
+        {recording && <p className="caption-status">{captionStatus}</p>}
         {recording && (
           <div className="room-chat">
             <div className="panel-head">
@@ -2167,4 +2330,34 @@ function ProviderPage() {
       )}
     </div>
   );
+}
+
+function CalendarPage({ meetings, onOpen }: { meetings: ApiMeeting[]; onOpen: (meeting: ApiMeeting) => void }) {
+  return <div className="page"><section className="welcome"><div><p className="eyebrow"><CalendarDays size={14} /> WORKSPACE CALENDAR</p><h1>Plan with context.</h1><p className="lead">Your persisted meetings and follow-ups in one view.</p></div><button className="primary" onClick={() => onOpen(meetings[0])} disabled={!meetings[0]}><FileText size={16} /> Open latest meeting</button></section><section className="panel"><div className="panel-head"><div><p className="eyebrow">OCTOBER 2026</p><h2>Meeting schedule</h2></div><span className="live-tag"><i /> Synced</span></div>{meetings.length ? meetings.map((meeting, index) => <button className="meeting-row" key={meeting.id} onClick={() => onOpen(meeting)}><div className="meeting-icon violet"><CalendarDays size={18} /></div><div className="meeting-name"><strong>{meeting.title}</strong><span>{index === 0 ? "Today · intelligence ready" : "Past meeting · persisted"}</span></div><span className="status"><i /> {meeting.is_demo ? "DEMO DATA" : meeting.status}</span><ChevronRight size={16} /></button>) : <p className="muted">No meetings have been created yet.</p>}</section></div>;
+}
+
+function AnalyticsPage({ meetings, actions }: { meetings: ApiMeeting[]; actions: ApiAction[] }) {
+  const open = actions.filter((action) => !["Completed", "COMPLETED", "CANCELLED"].includes(action.status)).length;
+  const completed = actions.length - open;
+  return <div className="page"><section className="welcome"><div><p className="eyebrow"><BarChart3 size={14} /> WORKSPACE ANALYTICS</p><h1>Evidence over noise.</h1><p className="lead">Observable activity from your persisted meeting records.</p></div></section><div className="metrics"><Metric label="Meetings" value={String(meetings.length)} delta="Persisted" icon={<FileText />} /><Metric label="Open actions" value={String(open)} delta="Needs follow-up" icon={<Target />} /><Metric label="Completed actions" value={String(completed)} delta="Recorded" icon={<CheckCircle2 />} /><Metric label="Demo coverage" value={meetings.some((m) => m.is_demo) ? "Apollo" : "None"} delta="Clearly labelled" icon={<Sparkles />} /></div><section className="panel"><div className="panel-head"><div><p className="eyebrow">ACTION MOMENTUM</p><h2>Follow-through</h2></div></div><div className="signal-list"><Signal text={`Open work: ${open}`} tone="orange" /><Signal text={`Completed work: ${completed}`} tone="violet" /><Signal text="All metrics are sourced from meeting records" tone="violet" /></div></section></div>;
+}
+
+function SettingsPage({ language, onLanguageChange }: { language: string; onLanguageChange: (value: string) => void }) {
+  return <div className="page"><section className="welcome"><div><p className="eyebrow"><Settings size={14} /> WORKSPACE SETTINGS</p><h1>Make MeetMind yours.</h1><p className="lead">Language and interface preferences are saved to your account.</p></div></section><section className="panel"><div className="panel-head"><div><p className="eyebrow">PREFERENCES</p><h2>Interface language</h2></div></div><label className="field-label" htmlFor="settings-language">Language</label><select id="settings-language" className="settings-select" value={language} onChange={(event) => onLanguageChange(event.target.value)}><option value="en">English</option><option value="hi">Hindi</option><option value="te">Telugu</option><option value="ta">Tamil</option><option value="kn">Kannada</option><option value="ml">Malayalam</option><option value="mr">Marathi</option><option value="bn">Bengali</option></select><p className="muted">Dates, numbers, notifications, and AI output can use this preference when providers are configured.</p></section></div>;
+}
+
+function ProfilePage({ profile, onSave, onSignOut }: { profile: { full_name: string; email: string; avatar_url: string }; onSave: (payload: { full_name?: string; avatar_url?: string }) => Promise<void>; onSignOut: () => void }) {
+  const [name, setName] = useState(profile.full_name);
+  const [avatar, setAvatar] = useState(profile.avatar_url);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const choosePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !file.type.startsWith("image/") || file.size > 500000) { setMessage("Choose an image smaller than 500 KB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => setAvatar(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+  const save = async () => { setSaving(true); setMessage(""); try { await onSave({ full_name: name, avatar_url: avatar }); setMessage("Profile saved."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to save profile."); } finally { setSaving(false); } };
+  return <div className="page"><section className="welcome"><div><p className="eyebrow"><Users size={14} /> ACCOUNT PROFILE</p><h1>Your profile.</h1><p className="lead">Keep the details your meeting workspace uses to identify you.</p></div><button className="outline" onClick={onSignOut}>Sign out</button></section><section className="panel profile-card"><div className="profile-photo-wrap"><label className="profile-photo" htmlFor="profile-photo-input">{avatar ? <img src={avatar} alt="Profile" /> : <span>{(name || "JD").slice(0, 2).toUpperCase()}</span>}<i><Camera size={14} /></i></label><input id="profile-photo-input" type="file" accept="image/*" onChange={choosePhoto} hidden /><small>Click the photo to upload</small></div><div className="profile-fields"><label className="field-label" htmlFor="profile-name">Full name</label><input id="profile-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" /><label className="field-label" htmlFor="profile-email">Email</label><input id="profile-email" value={profile.email} disabled /><label className="field-label">Workspace role</label><div className="profile-readonly">Organizer · Meeting intelligence workspace</div><button className="primary" onClick={save} disabled={saving}>{saving ? "Saving..." : "Save profile"}</button>{message && <p className="muted">{message}</p>}</div></section></div>;
 }

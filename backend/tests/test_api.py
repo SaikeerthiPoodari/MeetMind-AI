@@ -237,3 +237,36 @@ def test_meeting_language_detection_reports_supported_script(client):
     assert detected.status_code == 200
     assert detected.json()['language'] == 'en'
     assert detected.json()['mode'] == 'script-detection'
+
+def test_processing_state_is_persisted_and_resumable(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    state = client.get(f"/api/meetings/{demo['id']}/processing", headers=headers)
+    assert state.status_code == 200
+    assert len(state.json()['stages']) >= 15
+    processed = client.post(f"/api/meetings/{demo['id']}/process", headers=headers)
+    assert processed.status_code == 200
+    state = client.get(f"/api/meetings/{demo['id']}/processing", headers=headers).json()
+    assert state['status'] == 'analyzed'
+    assert all(stage['status'] == 'COMPLETED' for stage in state['stages'])
+
+def test_transcript_download_formats_are_real_and_authorized(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    for export_format, marker in [('txt', 'Maya Chen'), ('srt', '-->'), ('vtt', 'WEBVTT'), ('json', 'transcript')]:
+        response = client.get(f"/api/meetings/{demo['id']}/transcript/download?format={export_format}", headers=headers)
+        assert response.status_code == 200
+        assert marker in response.text
+
+def test_action_create_and_meeting_delete_are_persistent(client):
+    email = f"lifecycle-{uuid4()}@example.com"
+    registration = client.post('/api/auth/register', json={'email': email, 'password': 'StrongPass123!'})
+    headers = {'Authorization': f"Bearer {registration.json()['access_token']}"}
+    meeting = client.post('/api/meetings', headers=headers, json={'title': 'Delete me'}).json()
+    created = client.post(f"/api/meetings/{meeting['id']}/actions", headers=headers, json={'task': 'Confirm owner', 'priority': 'High'})
+    assert created.status_code == 201 and created.json()['status'] == 'DETECTED'
+    updated = client.patch(f"/api/actions/{created.json()['id']}", headers=headers, json={'status': 'COMPLETED'})
+    assert updated.status_code == 200 and updated.json()['status'] == 'COMPLETED'
+    deleted = client.delete(f"/api/meetings/{meeting['id']}", headers=headers)
+    assert deleted.status_code == 204
+    assert client.get(f"/api/meetings/{meeting['id']}", headers=headers).status_code == 404

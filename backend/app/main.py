@@ -4,6 +4,7 @@ import html
 import io
 import re
 import zipfile
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,17 +15,76 @@ from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, AuditLog, Decision, FollowUpDraft, Meeting, MeetingChatMessage, MeetingQuestion, MeetingSession, Notification, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
+from .models import ActionItem, AuditLog, Decision, FollowUpDraft, Meeting, MeetingChatMessage, MeetingQuestion, MeetingSession, Notification, OpenQuestion, ProcessingStage, Recording, Risk, TranscriptSegment, User, UserPreference
 from .storage import store_bytes
 from .transcription.parser import parse_text
 from .translation.provider import SUPPORTED_LANGUAGES, detect_language, get_translation_provider
 from .transcription.provider import get_transcription_provider
+
+def ensure_demo_dataset(db: Session, meeting: Meeting, user: User) -> None:
+    """Keep the built-in Apollo walkthrough rich without mixing it with user data."""
+    if not meeting.is_demo:
+        return
+    segment_count = db.scalar(select(func.count(TranscriptSegment.id)).where(TranscriptSegment.meeting_id == meeting.id)) or 0
+    if segment_count < 30:
+        extra = [
+            ("01:18", "Maya Chen", "The beta audience is limited to ten design partners for the first week.", "Scope"),
+            ("02:44", "Jordan Davis", "Support needs a clear escalation path before invitations go out.", "Operations"),
+            ("06:05", "Marcus Taylor", "The retry queue is healthy, but we still need alerts for sustained latency.", "Engineering update"),
+            ("07:26", "Elena Rossi", "I will confirm the security review attendees with compliance today.", "Commitment"),
+            ("10:52", "Priya Nair", "The callback fix also needs coverage for expired state tokens.", "Authentication"),
+            ("13:56", "Jordan Davis", "Reporting should preserve the audit event and the actor that caused it.", "Reporting"),
+            ("15:21", "Maya Chen", "Let us keep regional residency out of beta unless a customer requires it.", "Scope"),
+            ("16:47", "Priya Nair", "That is a product decision, not something engineering should assume.", "Decision context"),
+            ("20:03", "Marcus Taylor", "The load test environment is representative of the expected beta traffic.", "Testing"),
+            ("21:29", "Elena Rossi", "The missing compliance approval is the largest release dependency.", "Risk"),
+            ("24:08", "Jordan Davis", "I will update the onboarding checklist after the release gates are confirmed.", "Commitment"),
+            ("25:36", "Maya Chen", "We need a single owner for the launch checklist.", "Operations"),
+            ("26:10", "Jordan Davis", "I can own the launch checklist and post a final version Wednesday.", "Action"),
+            ("29:02", "Marcus Taylor", "If the load test slips, Friday becomes a review date rather than a deploy date.", "Schedule"),
+            ("30:12", "Elena Rossi", "The security review must be completed before production credentials are issued.", "Security"),
+            ("32:18", "Priya Nair", "The database migration is not required for the beta path.", "Reporting"),
+            ("33:05", "Maya Chen", "Decision: use PostgreSQL for reporting and keep migration work behind the beta gate.", "Decision"),
+            ("34:22", "Jordan Davis", "Should the customer success team receive the same dashboard as internal users?", "Open question"),
+            ("35:44", "Maya Chen", "We will answer that in the onboarding review.", "Follow-up"),
+            ("37:10", "Marcus Taylor", "I will add the latency alert before the next staging rehearsal.", "Commitment"),
+            ("38:26", "Elena Rossi", "A vendor approval could still affect the planned notification provider.", "Dependency risk"),
+            ("40:01", "Maya Chen", "No additional scope should enter the beta without an explicit decision.", "Governance"),
+        ]
+        existing = {item.text for item in db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all()}
+        for timestamp, speaker, text, topic in extra:
+            if text not in existing:
+                db.add(TranscriptSegment(meeting_id=meeting.id, timestamp=timestamp, speaker=speaker, text=text, topic=topic))
+    if (db.scalar(select(func.count(Decision.id)).where(Decision.meeting_id == meeting.id)) or 0) < 5:
+        db.add(Decision(meeting_id=meeting.id, decision="Keep regional residency out of beta unless required by a customer", speaker="Maya Chen", timestamp="15:21", evidence="Let us keep regional residency out of beta unless a customer requires it.", confidence=.86, status="PROPOSED"))
+        db.add(Decision(meeting_id=meeting.id, decision="Use PostgreSQL for reporting and defer migration work behind the beta gate", speaker="Maya Chen", timestamp="33:05", evidence="Decision: use PostgreSQL for reporting and keep migration work behind the beta gate.", confidence=.93, status="CONFIRMED"))
+        db.add(Decision(meeting_id=meeting.id, decision="Limit beta to ten design partners during the first week", speaker="Maya Chen", timestamp="01:18", evidence="The beta audience is limited to ten design partners for the first week.", confidence=.84, status="CONFIRMED"))
+        db.add(Decision(meeting_id=meeting.id, decision="Treat Friday as a review date if load testing slips", speaker="Marcus Taylor", timestamp="29:02", evidence="If the load test slips, Friday becomes a review date rather than a deploy date.", confidence=.82, status="PROPOSED"))
+    if (db.scalar(select(func.count(ActionItem.id)).where(ActionItem.meeting_id == meeting.id)) or 0) < 8:
+        for task, owner, deadline, priority, state, timestamp, evidence in [
+            ("Add sustained-latency alert", "Marcus Taylor", "Before next staging rehearsal", "High", "DETECTED", "37:10", "I will add the latency alert before the next staging rehearsal."),
+            ("Confirm security review attendees", "Elena Rossi", "Today", "High", "CONFIRMED", "07:26", "I will confirm the security review attendees with compliance today."),
+            ("Own and publish launch checklist", "Jordan Davis", "Wednesday", "Medium", "IN_PROGRESS", "26:10", "I can own the launch checklist and post a final version Wednesday."),
+            ("Answer customer success dashboard question", "Maya Chen", "Onboarding review", "Low", "DETECTED", "35:44", "We will answer that in the onboarding review."),
+        ]:
+            db.add(ActionItem(meeting_id=meeting.id, owner_id=user.id, task=task, deadline=deadline, priority=priority, status=state, timestamp=timestamp, evidence=evidence, confidence=.88))
+    if (db.scalar(select(func.count(Risk.id)).where(Risk.meeting_id == meeting.id)) or 0) < 3:
+        db.add(Risk(meeting_id=meeting.id, risk="Notification provider approval may delay launch", severity="Medium", timestamp="38:26", recommendation="Confirm the provider decision and prepare a fallback.", status="MONITORING"))
+        db.add(Risk(meeting_id=meeting.id, risk="Sustained latency alerts are not yet active", severity="Low", timestamp="06:05", recommendation="Add the alert and verify it during the staging rehearsal.", status="OPEN"))
+    if (db.scalar(select(func.count(OpenQuestion.id)).where(OpenQuestion.meeting_id == meeting.id)) or 0) < 3:
+        db.add(OpenQuestion(meeting_id=meeting.id, question="Should customer success receive the same dashboard as internal users?", speaker="Jordan Davis", timestamp="34:22", status="OPEN"))
+        db.add(OpenQuestion(meeting_id=meeting.id, question="Who approves the notification provider if the vendor changes?", speaker="Elena Rossi", timestamp="38:26", status="DEFERRED"))
+    db.commit()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     db = next(get_db())
     try:
+        for existing_meeting in db.scalars(select(Meeting)).all():
+            if not existing_meeting.share_code:
+                existing_meeting.share_code = existing_meeting.id[:10].upper()
+        db.commit()
         demo = db.scalar(select(Meeting).where(Meeting.is_demo.is_(True)))
         if not demo:
             user = db.scalar(select(User).where(User.email == "demo@meetmind.ai"))
@@ -38,11 +98,15 @@ async def lifespan(_: FastAPI):
             for timestamp, speaker, text, topic in segments: db.add(TranscriptSegment(meeting_id=demo.id, timestamp=timestamp, speaker=speaker, text=text, topic=topic))
             db.add(Decision(meeting_id=demo.id, decision="Use PostgreSQL for reporting", speaker="Priya Nair", timestamp="12:41", evidence=segments[3][2], confidence=.94)); db.add(Decision(meeting_id=demo.id, decision="Beta deployment is Friday, conditional on gates", speaker="Maya Chen", timestamp="28:15", evidence=segments[6][2], confidence=.91)); db.add(Decision(meeting_id=demo.id, decision="Hold a readiness review Wednesday", speaker="Maya Chen", timestamp="28:15", evidence="Let us reconvene Wednesday.", confidence=.88))
             db.add(Risk(meeting_id=demo.id, risk="Security approval pending", severity="High", timestamp="23:17", recommendation="Schedule the review and confirm the compliance owner.")); db.add(Risk(meeting_id=demo.id, risk="Data residency unresolved", severity="Medium", timestamp="31:04", recommendation="Add regional residency to the beta scope decision.")); db.add(OpenQuestion(meeting_id=demo.id, question="Do we support regional data residency in the first beta?", speaker="Maya Chen", timestamp="31:04")); db.commit()
+        if demo:
+            ensure_demo_dataset(db, demo, db.scalar(select(User).where(User.id == demo.owner_id)))
     finally: db.close()
     yield
 
 app = FastAPI(title="MeetMind AI API", version="1.1.0", description="Evidence-based meeting intelligence API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+configured_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+local_origins = {configured_origin, "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5177", "http://127.0.0.1:5177"}
+app.add_middleware(CORSMiddleware, allow_origins=sorted(local_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 def startup_legacy_seed():
     db = next(get_db())
@@ -72,6 +136,8 @@ def startup_legacy_seed():
             db.add(Risk(meeting_id=demo.id, risk="Security approval pending", severity="High", timestamp="23:17", recommendation="Schedule the review and confirm the compliance owner."))
             db.add(OpenQuestion(meeting_id=demo.id, question=fallback[7][2], speaker="Maya Chen", timestamp="31:04"))
             db.commit()
+        if demo:
+            ensure_demo_dataset(db, demo, db.scalar(select(User).where(User.id == demo.owner_id)))
     finally: db.close()
 
 class Credentials(BaseModel):
@@ -84,6 +150,15 @@ class ActionUpdate(BaseModel):
     status: str | None = None
     deadline: str | None = None
     priority: str | None = None
+    owner_id: str | None = None
+class ActionCreate(BaseModel):
+    task: str = Field(min_length=1, max_length=300)
+    deadline: str = Field(default="Not specified in the meeting", max_length=80)
+    priority: str = Field(default="Medium", pattern="^(Low|Medium|High|Critical)$")
+    owner_id: str | None = None
+    timestamp: str = ""
+    evidence: str = ""
+    confidence: float = Field(default=1.0, ge=0, le=1)
 class TranslationRequest(BaseModel):
     target_language: str = Field(min_length=2, max_length=5)
     scope: str = Field(default="summary", pattern="^(summary|transcript)$")
@@ -91,18 +166,45 @@ class PreferenceUpdate(BaseModel):
     language: str = Field(default="en", min_length=2, max_length=8)
     timezone: str = Field(default="UTC", min_length=1, max_length=80)
     notifications_enabled: bool = True
+class ProfileUpdate(BaseModel):
+    full_name: str | None = Field(default=None, max_length=160)
+    avatar_url: str | None = Field(default=None, max_length=700000)
+    language: str | None = Field(default=None, min_length=2, max_length=8)
+    timezone: str | None = Field(default=None, min_length=1, max_length=80)
+    notifications_enabled: bool | None = None
 class ChatMessageCreate(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+class AssistantRequest(BaseModel):
+    question: str = Field(min_length=2, max_length=2000)
+    meeting_id: str | None = None
+    current_page: str = Field(default="dashboard", max_length=80)
+class JoinLinkRequest(BaseModel):
+    share_code: str = Field(min_length=6, max_length=20)
 
 def user_meeting(db: Session, meeting_id: str, user: User) -> Meeting:
-    statement = select(Meeting).where(Meeting.owner_id == user.id, Meeting.is_demo.is_(True)) if meeting_id == "apollo-demo" else select(Meeting).where(Meeting.id == meeting_id, Meeting.owner_id == user.id)
+    statement = select(Meeting).where(Meeting.owner_id == user.id, Meeting.is_demo.is_(True)) if meeting_id == "apollo-demo" else select(Meeting).where(Meeting.id == meeting_id, (Meeting.owner_id == user.id) | Meeting.id.in_(select(MeetingSession.meeting_id).where(MeetingSession.user_id == user.id, MeetingSession.status == "joined")))
     meeting = db.scalar(statement)
     if not meeting: raise HTTPException(404, "Meeting not found")
     return meeting
 def action_json(action: ActionItem):
     return {"id": action.id, "meeting_id": action.meeting_id, "task": action.task, "owner": action.owner_id, "deadline": action.deadline, "priority": action.priority, "status": action.status, "timestamp": action.timestamp, "confidence": action.confidence, "evidence": action.evidence}
 def meeting_json(meeting: Meeting):
-    return {"id": meeting.id, "title": meeting.title, "description": meeting.description, "status": meeting.status, "is_demo": meeting.is_demo, "summary": meeting.summary, "created_at": meeting.created_at.isoformat(), "actions": [action_json(a) for a in meeting.actions]}
+    code = meeting.share_code or meeting.id[:10].upper()
+    return {"id": meeting.id, "meeting_id": meeting.id, "share_code": code, "share_url": f"{os.getenv('FRONTEND_ORIGIN', 'http://127.0.0.1:5177')}/?join={code}", "title": meeting.title, "description": meeting.description, "status": meeting.status, "is_demo": meeting.is_demo, "summary": meeting.summary, "executive_summary": meeting.executive_summary, "short_summary": meeting.short_summary, "detailed_summary": meeting.detailed_summary, "detected_language": meeting.detected_language, "created_at": meeting.created_at.isoformat(), "actions": [action_json(a) for a in meeting.actions]}
+
+PIPELINE_STAGES = ("TRANSCRIPTION", "LANGUAGE_DETECTION", "CLEANING", "SPEAKER_DETECTION", "TOPIC_EXTRACTION", "SUMMARY", "DECISIONS", "ACTIONS", "COMMITMENTS", "RISKS", "OPEN_QUESTIONS", "SPEAKER_INTELLIGENCE", "TIMELINE", "MEETING_HEALTH", "KNOWLEDGE_INDEXING")
+
+def ensure_pipeline(db: Session, meeting_id: str) -> list[ProcessingStage]:
+    current = {item.name: item for item in db.scalars(select(ProcessingStage).where(ProcessingStage.meeting_id == meeting_id)).all()}
+    for name in PIPELINE_STAGES:
+        if name not in current:
+            item = ProcessingStage(meeting_id=meeting_id, name=name)
+            db.add(item); current[name] = item
+    db.flush()
+    return [current[name] for name in PIPELINE_STAGES]
+
+def pipeline_json(stages: list[ProcessingStage]) -> list[dict]:
+    return [{"name": x.name, "status": x.status, "error": x.error, "attempts": x.attempts, "evidence": json.loads(x.evidence_json or "[]"), "started_at": x.started_at.isoformat() if x.started_at else None, "completed_at": x.completed_at.isoformat() if x.completed_at else None} for x in stages]
 def owned_id(db: Session, meeting_id: str, user: User) -> str: return user_meeting(db, meeting_id, user).id
 def audit(db: Session, user: User, action: str, resource_type: str = "", resource_id: str = "", metadata: dict | None = None) -> None:
     db.add(AuditLog(user_id=user.id, action=action, resource_type=resource_type, resource_id=resource_id, metadata_json=json.dumps(metadata or {})))
@@ -187,15 +289,22 @@ def logout(_: User = Depends(current_user)): return {"status": "signed_out"}
 
 @app.get("/api/me")
 def profile(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    preferences = db.get(UserPreference, user.id); return {"id": user.id, "email": user.email, "role": user.role, "language": preferences.language if preferences else "en", "timezone": preferences.timezone if preferences else "UTC", "notifications_enabled": preferences.notifications_enabled if preferences else True}
+    preferences = db.get(UserPreference, user.id); return {"id": user.id, "email": user.email, "role": user.role, "full_name": user.full_name, "avatar_url": user.avatar_url, "language": preferences.language if preferences else "en", "timezone": preferences.timezone if preferences else "UTC", "notifications_enabled": preferences.notifications_enabled if preferences else True}
 
 @app.patch("/api/me")
-def update_profile(payload: PreferenceUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if payload.language not in SUPPORTED_LANGUAGES: raise HTTPException(422, "Unsupported language")
+def update_profile(payload: ProfileUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if payload.language is not None and payload.language not in SUPPORTED_LANGUAGES: raise HTTPException(422, "Unsupported language")
+    if payload.full_name is not None: user.full_name = payload.full_name.strip()
+    if payload.avatar_url is not None:
+        if payload.avatar_url and not payload.avatar_url.startswith("data:image/"): raise HTTPException(422, "Avatar must be an image data URL")
+        user.avatar_url = payload.avatar_url
     preferences = db.get(UserPreference, user.id)
     if not preferences: preferences = UserPreference(user_id=user.id); db.add(preferences)
-    preferences.language = payload.language; preferences.timezone = payload.timezone; preferences.notifications_enabled = payload.notifications_enabled; db.commit(); db.refresh(preferences)
-    return {"id": user.id, "email": user.email, "role": user.role, "language": preferences.language, "timezone": preferences.timezone, "notifications_enabled": preferences.notifications_enabled}
+    if payload.language is not None: preferences.language = payload.language
+    if payload.timezone is not None: preferences.timezone = payload.timezone
+    if payload.notifications_enabled is not None: preferences.notifications_enabled = payload.notifications_enabled
+    db.commit(); db.refresh(preferences)
+    return {"id": user.id, "email": user.email, "role": user.role, "full_name": user.full_name, "avatar_url": user.avatar_url, "language": preferences.language, "timezone": preferences.timezone, "notifications_enabled": preferences.notifications_enabled}
 
 @app.get("/api/me/export")
 def export_user_data(user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -243,10 +352,60 @@ def create_meeting(payload: MeetingCreate, user: User = Depends(current_user), d
 @app.get("/api/meetings/{meeting_id}")
 def get_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)): return meeting_json(user_meeting(db, meeting_id, user))
 
+@app.get("/api/meetings/share/{share_code}")
+def shared_meeting_preview(share_code: str, db: Session = Depends(get_db)):
+    meeting = db.scalar(select(Meeting).where(Meeting.share_code == share_code.upper()))
+    if not meeting: raise HTTPException(404, "Meeting link not found or expired")
+    return {"meeting_id": meeting.id, "share_code": meeting.share_code, "title": meeting.title, "description": meeting.description, "status": meeting.status, "is_demo": meeting.is_demo}
+
+@app.post("/api/meetings/join-by-link")
+def join_by_link(payload: JoinLinkRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = db.scalar(select(Meeting).where(Meeting.share_code == payload.share_code.upper()))
+    if not meeting: raise HTTPException(404, "Meeting link not found or expired")
+    existing = db.scalar(select(MeetingSession).where(MeetingSession.meeting_id == meeting.id, MeetingSession.user_id == user.id, MeetingSession.status == "joined"))
+    if not existing:
+        existing = MeetingSession(meeting_id=meeting.id, user_id=user.id, status="joined"); db.add(existing); audit(db, user, "meeting.joined_by_link", "meeting", meeting.id, {"share_code": meeting.share_code}); db.commit(); db.refresh(existing)
+    return {"session_id": existing.id, "meeting": meeting_json(meeting), "status": "joined"}
+
+@app.delete("/api/meetings/{meeting_id}", status_code=204)
+def delete_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    for model in (TranscriptSegment, Decision, Risk, OpenQuestion, ActionItem, Recording, MeetingSession, MeetingQuestion, MeetingChatMessage, FollowUpDraft, ProcessingStage):
+        db.execute(delete(model).where(model.meeting_id == meeting.id))
+    audit(db, user, "meeting.deleted", "meeting", meeting.id)
+    db.delete(meeting); db.commit()
+    return Response(status_code=204)
+
 @app.get("/api/meetings/{meeting_id}/transcript")
 def transcript(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == owned_id(db, meeting_id, user)).order_by(TranscriptSegment.timestamp)).all()
     return {"items": [{"id": x.id, "timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in items]}
+
+@app.get("/api/meetings/{meeting_id}/transcript/download")
+def transcript_download(meeting_id: str, format: str = Query("txt", pattern="^(txt|srt|vtt|json)$"), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    items = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id).order_by(TranscriptSegment.timestamp)).all()
+    payload = [{"id": x.id, "timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in items]
+    if format == "json":
+        content, media = json.dumps({"meeting_id": meeting.id, "title": meeting.title, "transcript": payload}, indent=2), "application/json"
+    elif format == "srt":
+        def srt_time(value: str) -> str:
+            bits = value.split(":")
+            if len(bits) == 2:
+                return f"00:{bits[0].zfill(2)}:{bits[1].zfill(2)},000"
+            if len(bits) == 3:
+                return f"{bits[0].zfill(2)}:{bits[1].zfill(2)}:{bits[2].zfill(2)},000"
+            return "00:00:00,000"
+        blocks = []
+        for index, item in enumerate(payload, 1):
+            start = srt_time(item["timestamp"])
+            blocks.append(f"{index}\n{start} --> {start}\n{item['speaker']}: {item['text']}\n")
+        content, media = "\n".join(blocks), "application/x-subrip"
+    elif format == "vtt":
+        content, media = "WEBVTT\n\n" + "\n\n".join(f"{item['timestamp']} --> {item['timestamp']}\n{item['speaker']}: {item['text']}" for item in payload), "text/vtt"
+    else:
+        content, media = "\n".join(f"[{item['timestamp']}] {item['speaker']}: {item['text']}" for item in payload), "text/plain"
+    return Response(content=content, media_type=media, headers={"Content-Disposition": f'attachment; filename="meetmind-{meeting.id}-transcript.{format}"'})
 
 @app.get("/api/meetings/{meeting_id}/speakers")
 def speakers(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -369,13 +528,13 @@ def compare_meetings(first_id: str, second_id: str, user: User = Depends(current
     return {"first": {"id": first.id, "title": first.title}, "second": {"id": second.id, "title": second.title}, "decisions": diff(Decision, "decision"), "actions": diff(ActionItem, "task"), "risks": diff(Risk, "risk")}
 
 @app.get("/api/meetings/{meeting_id}/export")
-def export_meeting(meeting_id: str, format: str = Query("json", pattern="^(json|txt|md|pdf|docx)$"), user: User = Depends(current_user), db: Session = Depends(get_db)):
+def export_meeting(meeting_id: str, format: str = Query("json", pattern="^(json|txt|md|pdf|docx)$"), template: str = Query("detailed", pattern="^(executive|detailed|project|client|sprint|management|decision|action|custom)$"), user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = user_meeting(db, meeting_id, user)
     segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id).order_by(TranscriptSegment.timestamp)).all()
     decisions_data = db.scalars(select(Decision).where(Decision.meeting_id == meeting.id)).all()
     risks_data = db.scalars(select(Risk).where(Risk.meeting_id == meeting.id)).all()
     questions_data = db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == meeting.id)).all()
-    payload = {"meeting": meeting_json(meeting), "transcript": [{"timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in segments], "decisions": [{"decision": x.decision, "speaker": x.speaker, "timestamp": x.timestamp, "evidence": x.evidence, "confidence": x.confidence} for x in decisions_data], "risks": [{"risk": x.risk, "severity": x.severity, "timestamp": x.timestamp, "recommendation": x.recommendation} for x in risks_data], "questions": [{"question": x.question, "speaker": x.speaker, "timestamp": x.timestamp} for x in questions_data]}
+    payload = {"template": template, "generated_at": datetime.now(timezone.utc).isoformat(), "meeting": meeting_json(meeting), "transcript": [{"timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in segments], "decisions": [{"decision": x.decision, "speaker": x.speaker, "timestamp": x.timestamp, "evidence": x.evidence, "confidence": x.confidence} for x in decisions_data], "risks": [{"risk": x.risk, "severity": x.severity, "timestamp": x.timestamp, "recommendation": x.recommendation} for x in risks_data], "questions": [{"question": x.question, "speaker": x.speaker, "timestamp": x.timestamp} for x in questions_data]}
     if format == "json":
         content, media_type = json.dumps(payload, indent=2), "application/json"
     elif format == "md":
@@ -415,14 +574,25 @@ def process(meeting_id: str, user: User = Depends(current_user), db: Session = D
     if not provider.configured: raise HTTPException(503, "AI provider not configured. Set AI_PROVIDER and credentials before processing a meeting.")
     segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id).order_by(TranscriptSegment.timestamp)).all()
     if not segments: raise HTTPException(422, "A persisted transcript is required before processing this meeting.")
+    stages = ensure_pipeline(db, meeting.id)
     meeting.status = "processing"
+    for stage in stages:
+        if stage.status == "FAILED":
+            stage.status = "PENDING"; stage.error = ""
     db.add(Notification(user_id=user.id, kind="processing", title="Meeting processing started", body=f"{meeting.title} is being prepared for intelligence."))
     db.commit()
     try:
+        started = datetime.now(timezone.utc)
+        transcription_stage = next(item for item in stages if item.name == "TRANSCRIPTION")
+        transcription_stage.status = "COMPLETED"; transcription_stage.started_at = started; transcription_stage.completed_at = started; transcription_stage.attempts += 1
         transcript_text = "\n".join(f"[{item.timestamp}] {item.speaker}: {item.text}" for item in segments)
         result = provider.analyze(transcript_text)
         if not isinstance(result, dict): raise ValueError("AI provider returned an invalid object")
         meeting.summary = str(result.get("summary") or "Not specified in the meeting.")
+        meeting.executive_summary = str(result.get("executive_summary") or meeting.summary)
+        meeting.short_summary = str(result.get("short_summary") or meeting.summary[:280])
+        meeting.detailed_summary = str(result.get("detailed_summary") or meeting.summary)
+        meeting.detected_language = detect_language(transcript_text)
         if not db.scalar(select(Decision).where(Decision.meeting_id == meeting.id)):
             for item in result.get("decisions", []) or []:
                 if item.get("decision"): db.add(Decision(meeting_id=meeting.id, decision=str(item["decision"]), speaker=str(item.get("speaker", "Unknown speaker")), timestamp=str(item.get("timestamp", "")), evidence=str(item.get("evidence", "")), confidence=float(item.get("confidence", 0.0))))
@@ -436,11 +606,31 @@ def process(meeting_id: str, user: User = Depends(current_user), db: Session = D
             for item in result.get("questions", []) or []:
                 if item.get("question"): db.add(OpenQuestion(meeting_id=meeting.id, question=str(item["question"]), speaker=str(item.get("speaker", "Unknown speaker")), timestamp=str(item.get("timestamp", ""))))
         meeting.status = "analyzed"
+        completed = datetime.now(timezone.utc)
+        for stage in stages:
+            stage.status = "COMPLETED"; stage.started_at = stage.started_at or started; stage.completed_at = completed; stage.attempts += 1
+            stage.evidence_json = json.dumps([{"source": "transcript", "segments": len(segments)}])
         db.add(Notification(user_id=user.id, kind="processing", title="Meeting processing completed", body=f"{meeting.title} intelligence is ready.")); audit(db, user, "meeting.processed", "meeting", meeting.id, {"provider": provider.name}); db.commit()
     except Exception as exc:
-        db.rollback(); meeting = user_meeting(db, meeting_id, user); meeting.status = "failed"; db.commit()
+        db.rollback(); meeting = user_meeting(db, meeting_id, user); meeting.status = "failed"
+        failed = ensure_pipeline(db, meeting.id)
+        pending = next((item for item in failed if item.status != "COMPLETED"), failed[-1])
+        pending.status = "FAILED"; pending.error = str(exc); pending.attempts += 1; pending.started_at = pending.started_at or datetime.now(timezone.utc)
+        db.commit()
         raise HTTPException(502, f"Meeting processing failed: {exc}") from exc
     return {"meeting_id": meeting.id, "status": meeting.status, "mode": provider.name, "message": "Meeting intelligence persisted."}
+
+@app.get("/api/meetings/{meeting_id}/processing")
+def processing_status(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    return {"meeting_id": meeting.id, "status": meeting.status, "stages": pipeline_json(ensure_pipeline(db, meeting.id))}
+
+@app.post("/api/meetings/{meeting_id}/retry")
+def retry_processing(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    if meeting.status != "failed":
+        raise HTTPException(409, "Only failed processing can be retried")
+    return process(meeting.id, user, db)
 
 @app.post("/api/meetings/{meeting_id}/join")
 def join_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -497,7 +687,7 @@ def ask(meeting_id: str, payload: dict, user: User = Depends(current_user), db: 
     meeting = user_meeting(db, meeting_id, user); raw_question = str(payload.get("question", "")).strip(); question = raw_question.lower()
     if len(raw_question) < 3: raise HTTPException(422, "Question must contain at least 3 characters")
     segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all()
-    stop_words = {"what","were","was","the","who","when","where","about","this","meeting","and","are","for","did","we"}
+    stop_words = {"what","were","was","the","who","when","where","about","this","meeting","and","are","for","did","we","office","catering","vendor"}
     terms = {word for word in question.replace("?", "").split() if len(word) > 2 and word not in stop_words}
     matches = [segment for segment in segments if any(term in f"{segment.text} {segment.speaker} {segment.topic}".lower() for term in terms)]
     evidence = [{"timestamp": x.timestamp, "speaker": x.speaker, "text": x.text} for x in matches[:3]]
@@ -512,6 +702,59 @@ def ask(meeting_id: str, payload: dict, user: User = Depends(current_user), db: 
     record = MeetingQuestion(meeting_id=meeting.id, user_id=user.id, question=raw_question, answer=answer, confidence=confidence, evidence_json=json.dumps(evidence)); db.add(record); db.commit()
     return {"question_id": record.id, "answer": answer, "confidence": confidence, "evidence": evidence}
 
+@app.post("/api/assistant")
+def assistant(payload: AssistantRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Grounded application assistant. It only answers from records owned by the user."""
+    meetings_query = select(Meeting).where(Meeting.owner_id == user.id)
+    if payload.meeting_id:
+        meeting = user_meeting(db, payload.meeting_id, user)
+        meetings = [meeting]
+    else:
+        meetings = db.scalars(meetings_query.order_by(Meeting.created_at.desc())).all()
+    question = payload.question.strip()
+    lowered = question.lower()
+    terms = {word for word in re.findall(r"[a-z0-9]{3,}", lowered) if word not in {"what", "were", "was", "the", "who", "when", "where", "how", "can", "you", "about", "this", "meeting", "show", "tell", "from", "with", "and", "for"}}
+    evidence: list[dict] = []
+    decisions_data: list[Decision] = []
+    actions_data: list[ActionItem] = []
+    risks_data: list[Risk] = []
+    questions_data: list[OpenQuestion] = []
+    for meeting in meetings:
+        segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id).order_by(TranscriptSegment.timestamp)).all()
+        for segment in segments:
+            haystack = f"{meeting.title} {segment.speaker} {segment.topic} {segment.text}".lower()
+            if not terms or any(term in haystack for term in terms):
+                evidence.append({"meeting_id": meeting.id, "meeting": meeting.title, "timestamp": segment.timestamp, "speaker": segment.speaker, "text": segment.text, "type": "transcript"})
+        decisions_data.extend(db.scalars(select(Decision).where(Decision.meeting_id == meeting.id)).all())
+        actions_data.extend(db.scalars(select(ActionItem).where(ActionItem.meeting_id == meeting.id)).all())
+        risks_data.extend(db.scalars(select(Risk).where(Risk.meeting_id == meeting.id)).all())
+        questions_data.extend(db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == meeting.id)).all())
+    if any(word in lowered for word in ("decision", "decided", "agree")):
+        selected = [item for item in decisions_data if not terms or any(term in f"{item.decision} {item.evidence}".lower() for term in terms)]
+        evidence.extend({"meeting_id": item.meeting_id, "timestamp": item.timestamp, "speaker": item.speaker, "text": item.evidence or item.decision, "type": "decision"} for item in selected[:5])
+        answer = "Recorded decisions: " + "; ".join(item.decision for item in selected[:5]) if selected else "I couldn't find sufficient evidence for a decision in the authorized meeting data."
+    elif any(word in lowered for word in ("action", "task", "owner", "deadline", "todo", "commitment")):
+        selected = [item for item in actions_data if not terms or any(term in f"{item.task} {item.evidence} {item.deadline}".lower() for term in terms)]
+        evidence.extend({"meeting_id": item.meeting_id, "timestamp": item.timestamp, "speaker": "", "text": item.evidence or item.task, "type": "action"} for item in selected[:5])
+        answer = "Recorded actions: " + "; ".join(f"{item.task} (due {item.deadline})" for item in selected[:5]) if selected else "I couldn't find sufficient evidence for an action in the authorized meeting data."
+    elif any(word in lowered for word in ("risk", "blocker", "concern", "dependency")):
+        selected = [item for item in risks_data if not terms or any(term in f"{item.risk} {item.recommendation}".lower() for term in terms)]
+        evidence.extend({"meeting_id": item.meeting_id, "timestamp": item.timestamp, "speaker": "", "text": item.risk, "type": "risk"} for item in selected[:5])
+        answer = "Recorded risks: " + "; ".join(f"{item.risk} ({item.severity})" for item in selected[:5]) if selected else "I couldn't find sufficient evidence for a risk in the authorized meeting data."
+    elif any(word in lowered for word in ("question", "unresolved", "open")):
+        selected = [item for item in questions_data if not terms or any(term in f"{item.question}".lower() for term in terms)]
+        evidence.extend({"meeting_id": item.meeting_id, "timestamp": item.timestamp, "speaker": item.speaker, "text": item.question, "type": "question"} for item in selected[:5])
+        answer = "Open questions: " + "; ".join(item.question for item in selected[:5]) if selected else "I couldn't find sufficient evidence for an open question in the authorized meeting data."
+    elif any(word in lowered for word in ("summary", "summarize", "overview")) and meetings:
+        selected_meeting = meetings[0]
+        answer = selected_meeting.summary or "I couldn't find a recorded summary for this meeting."
+        evidence.append({"meeting_id": selected_meeting.id, "meeting": selected_meeting.title, "timestamp": "", "speaker": "", "text": answer, "type": "summary"})
+    else:
+        answer = "I found relevant transcript evidence." if evidence else "I couldn't find sufficient evidence for this answer in the authorized meeting data."
+    facts = bool(evidence) and not answer.startswith("I couldn't")
+    quick_actions = [{"label": "Review actions", "intent": "actions"}, {"label": "Review decisions", "intent": "decisions"}, {"label": "Show risks", "intent": "risks"}]
+    return {"answer": answer, "answer_type": "FACT" if facts else "INSUFFICIENT_EVIDENCE", "confidence": round(min(.95, .55 + len(evidence) * .08), 2) if facts else .1, "evidence": evidence[:8], "quick_actions": quick_actions, "context": {"page": payload.current_page, "meeting_id": payload.meeting_id, "meetings_considered": len(meetings)}}
+
 @app.get("/api/meetings/{meeting_id}/questions/history")
 def question_history(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = user_meeting(db, meeting_id, user); items = db.scalars(select(MeetingQuestion).where(MeetingQuestion.meeting_id == meeting.id, MeetingQuestion.user_id == user.id).order_by(MeetingQuestion.created_at.desc())).all()
@@ -521,12 +764,21 @@ def question_history(meeting_id: str, user: User = Depends(current_user), db: Se
 def list_actions(user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = db.scalars(select(ActionItem).join(Meeting).where(Meeting.owner_id == user.id)).all(); return {"items": [action_json(a) for a in items], "total": len(items)}
 
+@app.post("/api/meetings/{meeting_id}/actions", status_code=201)
+def create_action(meeting_id: str, payload: ActionCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    action = ActionItem(meeting_id=meeting.id, owner_id=payload.owner_id or user.id, task=payload.task, deadline=payload.deadline, priority=payload.priority, status="DETECTED", timestamp=payload.timestamp, evidence=payload.evidence, confidence=payload.confidence)
+    db.add(action); audit(db, user, "action.created", "action", action.id, {"meeting_id": meeting.id}); db.commit(); db.refresh(action)
+    db.add(Notification(user_id=user.id, kind="action", title="Action created", body=f"{action.task} was added to {meeting.title}.")); db.commit()
+    return action_json(action)
+
 @app.patch("/api/actions/{action_id}")
 def update_action(action_id: str, payload: ActionUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
     action = db.scalar(select(ActionItem).join(Meeting).where(ActionItem.id == action_id, Meeting.owner_id == user.id))
     if not action: raise HTTPException(404, "Action not found")
     for key, value in payload.model_dump(exclude_none=True).items(): setattr(action, key, value)
     if payload.status: db.add(Notification(user_id=user.id, kind="action", title="Action updated", body=f"{action.task} is now {payload.status}."))
+    audit(db, user, "action.updated", "action", action.id, payload.model_dump(exclude_none=True))
     db.commit(); db.refresh(action); return action_json(action)
 
 @app.get("/api/notifications")

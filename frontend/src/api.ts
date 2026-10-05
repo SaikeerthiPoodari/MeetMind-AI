@@ -12,6 +12,9 @@ export type ApiAction = {
 };
 export type ApiMeeting = {
   id: string;
+  meeting_id?: string;
+  share_code?: string;
+  share_url?: string;
   title: string;
   description: string;
   status: string;
@@ -154,6 +157,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question }),
     }),
+  assistant: (payload: { question: string; meeting_id?: string; current_page: string }) =>
+    request<{
+      answer: string;
+      answer_type: "FACT" | "INSUFFICIENT_EVIDENCE";
+      confidence: number;
+      evidence: Array<{ meeting_id: string; meeting?: string; timestamp: string; speaker: string; text: string; type: string }>;
+      quick_actions: Array<{ label: string; intent: string }>;
+      context: { page: string; meeting_id?: string; meetings_considered: number };
+    }>("/api/assistant", { method: "POST", body: JSON.stringify(payload) }),
   search: (query: string) =>
     request<{
       items: Array<{
@@ -169,12 +181,14 @@ export const api = {
   exportUrl: (
     meetingId: string,
     format: "json" | "txt" | "md" | "pdf" | "docx",
-  ) => `${API_URL}/api/meetings/${meetingId}/export?format=${format}`,
+    template = "detailed",
+  ) => `${API_URL}/api/meetings/${meetingId}/export?format=${format}&template=${template}`,
   downloadExport: async (
     meetingId: string,
     format: "json" | "txt" | "md" | "pdf" | "docx",
+    template = "detailed",
   ) => {
-    const response = await fetch(api.exportUrl(meetingId, format), {
+    const response = await fetch(api.exportUrl(meetingId, format, template), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!response.ok)
@@ -196,6 +210,22 @@ export const api = {
     }),
   getMeeting: (meetingId: string) =>
     request<ApiMeeting>(`/api/meetings/${meetingId}`),
+  deleteMeeting: async (meetingId: string) => {
+    const response = await fetch(`${API_URL}/api/meetings/${meetingId}`, {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok)
+      throw new Error(
+        (await response.json().catch(() => null))?.detail ??
+          "Meeting deletion failed",
+      );
+  },
+  createAction: (meetingId: string, payload: Partial<ApiAction> & { task: string }) =>
+    request<ApiAction>(`/api/meetings/${meetingId}/actions`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   upload: async (meetingId: string, file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -219,12 +249,53 @@ export const api = {
   },
   join: (meetingId: string) =>
     request(`/api/meetings/${meetingId}/join`, { method: "POST" }),
+  meetingPreview: (shareCode: string) =>
+    request<{ meeting_id: string; share_code: string; title: string; description: string; status: string; is_demo: boolean }>(`/api/meetings/share/${encodeURIComponent(shareCode)}`),
+  joinByLink: (shareCode: string) =>
+    request<{ session_id: string; meeting: ApiMeeting; status: string }>("/api/meetings/join-by-link", { method: "POST", body: JSON.stringify({ share_code: shareCode }) }),
   start: (meetingId: string) =>
     request(`/api/meetings/${meetingId}/start`, { method: "POST" }),
   end: (meetingId: string) =>
     request(`/api/meetings/${meetingId}/end`, { method: "POST" }),
   process: (meetingId: string) =>
     request(`/api/meetings/${meetingId}/process`, { method: "POST" }),
+  processing: (meetingId: string) =>
+    request<{
+      meeting_id: string;
+      status: string;
+      stages: Array<{
+        name: string;
+        status: string;
+        error: string;
+        attempts: number;
+        evidence: unknown[];
+        started_at: string | null;
+        completed_at: string | null;
+      }>;
+    }>(`/api/meetings/${meetingId}/processing`),
+  retryProcessing: (meetingId: string) =>
+    request(`/api/meetings/${meetingId}/retry`, { method: "POST" }),
+  downloadTranscript: async (
+    meetingId: string,
+    format: "txt" | "srt" | "vtt" | "json",
+  ) => {
+    const response = await fetch(
+      `${API_URL}/api/meetings/${meetingId}/transcript/download?format=${format}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!response.ok)
+      throw new Error(
+        (await response.json().catch(() => null))?.detail ??
+          "Transcript download failed",
+      );
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `meetmind-${meetingId}-transcript.${format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  },
   transcript: (meetingId: string) =>
     request<{
       items: Array<{
@@ -373,14 +444,18 @@ export const api = {
       id: string;
       email: string;
       role: string;
+      full_name: string;
+      avatar_url: string;
       language: string;
       timezone: string;
       notifications_enabled: boolean;
     }>("/api/me"),
   updateProfile: (payload: {
-    language: string;
-    timezone: string;
-    notifications_enabled: boolean;
+    language?: string;
+    timezone?: string;
+    notifications_enabled?: boolean;
+    full_name?: string;
+    avatar_url?: string;
   }) =>
     request<{
       language: string;

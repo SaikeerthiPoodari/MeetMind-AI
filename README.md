@@ -14,6 +14,8 @@ MeetMind AI is an evidence-based meeting intelligence workspace. It turns meetin
 - FastAPI endpoints for health, auth, meetings, upload validation, processing, Q&A, and actions.
 - Demo mode with realistic Apollo meeting intelligence and hallucination-safe fallback answers.
 - Tests for API health, evidence shape, and unknown-question refusal.
+- Resumable processing pipeline state for transcription, language detection, cleaning, extraction, intelligence, and indexing stages.
+- Real transcript downloads in TXT, SRT, VTT, and JSON formats with authorization checks.
 
 ## Run locally
 
@@ -59,6 +61,12 @@ npm run build
 ## Documentation
 
 See [docs/architecture.md](docs/architecture.md), [docs/api.md](docs/api.md), and [docs/academic-project.md](docs/academic-project.md).
+
+## Current delivery boundary
+
+The implemented product path is evidence-grounded meeting capture and intelligence: auth, owner-scoped persistence, demo mode, transcript ingestion, resumable processing state, summaries, decisions, actions, risks, questions, Q&A, comparison, search, notifications, exports, localization catalogs, and privacy controls. External providers remain explicitly configurable; missing credentials return `NOT CONFIGURED`/`503` rather than fabricated success.
+
+The remaining enterprise-scale items from the extended roadmap—production WebRTC signaling/TURN, provider OAuth connectors, background workers, cross-user collaboration, and browser E2E coverage—require deployment infrastructure and credentials and are not represented as fake integrations.
 
 ## Known next steps
 

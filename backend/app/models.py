@@ -10,6 +10,8 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(160), default="")
+    avatar_url: Mapped[str] = mapped_column(Text, default="")
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(30), default="ORGANIZER")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -18,12 +20,17 @@ class User(Base):
 class Meeting(Base):
     __tablename__ = "meetings"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    share_code: Mapped[str] = mapped_column(String(20), unique=True, index=True, default=lambda: uuid4().hex[:10].upper())
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(30), default="draft")
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     summary: Mapped[str] = mapped_column(Text, default="")
+    executive_summary: Mapped[str] = mapped_column(Text, default="")
+    short_summary: Mapped[str] = mapped_column(Text, default="")
+    detailed_summary: Mapped[str] = mapped_column(Text, default="")
+    detected_language: Mapped[str] = mapped_column(String(12), default="und")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     owner: Mapped[User] = relationship(back_populates="meetings")
     actions: Mapped[list["ActionItem"]] = relationship(back_populates="meeting", cascade="all, delete-orphan")
@@ -52,6 +59,18 @@ class Recording(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(30), default="uploaded")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+class ProcessingStage(Base):
+    __tablename__ = "processing_stages"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(40), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    error: Mapped[str] = mapped_column(Text, default="")
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
 
 class TranscriptSegment(Base):
     __tablename__ = "transcript_segments"
