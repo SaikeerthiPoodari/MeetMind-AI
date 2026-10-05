@@ -2,6 +2,7 @@ import os
 import json
 import html
 import io
+import re
 import zipfile
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
@@ -287,6 +288,26 @@ def meeting_intelligence(meeting_id: str, user: User = Depends(current_user), db
     decision_dna = [{"decision": item.decision, "owner": item.speaker, "timestamp": item.timestamp, "confidence": item.confidence, "evidence": item.evidence, "status": item.status} for item in decisions_data]
     commitment_radar = [{"commitment": item.task, "owner": item.owner_id, "deadline": item.deadline, "status": item.status, "priority": item.priority, "evidence": item.evidence, "timestamp": item.timestamp} for item in actions_data]
     return {"meeting_id": meeting_id, "decision_dna": decision_dna, "commitment_radar": commitment_radar}
+
+@app.get("/api/meetings/{meeting_id}/preflight")
+def meeting_preflight(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    current = user_meeting(db, meeting_id, user)
+    stop_words = {"about", "after", "before", "from", "meeting", "project", "that", "this", "with", "and", "the"}
+    tokens = {word for word in re.findall(r"[a-z0-9]{3,}", f"{current.title} {current.summary}".lower()) if word not in stop_words}
+    related = []
+    for candidate in db.scalars(select(Meeting).where(Meeting.owner_id == user.id, Meeting.id != current.id)).all():
+        candidate_tokens = {word for word in re.findall(r"[a-z0-9]{3,}", f"{candidate.title} {candidate.summary}".lower()) if word not in stop_words}
+        overlap = tokens & candidate_tokens
+        if overlap:
+            related.append({"id": candidate.id, "title": candidate.title, "status": candidate.status, "shared_terms": sorted(overlap), "score": len(overlap)})
+    related.sort(key=lambda item: item["score"], reverse=True)
+    carry_over = []
+    for candidate in db.scalars(select(Meeting).where(Meeting.owner_id == user.id, Meeting.id != current.id)).all():
+        for action in db.scalars(select(ActionItem).where(ActionItem.meeting_id == candidate.id, ActionItem.status != "Completed")).all():
+            carry_over.append({"task": action.task, "owner": action.owner_id, "deadline": action.deadline, "status": action.status, "meeting_id": candidate.id, "meeting_title": candidate.title})
+    suggestions = ["Which carry-over actions need an updated owner or deadline?"] if carry_over else []
+    if related: suggestions.append(f"What changed since {related[0]['title']}?")
+    return {"meeting_id": current.id, "related_meetings": related[:5], "carry_over_actions": carry_over[:10], "suggested_questions": suggestions}
 
 @app.post("/api/meetings/{meeting_id}/translate")
 def translate_meeting(meeting_id: str, payload: TranslationRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):

@@ -182,3 +182,10 @@ def test_meeting_intelligence_is_grounded_in_persisted_decisions_and_actions(cli
     assert len(body['decision_dna']) >= 1
     assert len(body['commitment_radar']) >= 1
     assert body['decision_dna'][0]['evidence']
+
+def test_preflight_returns_authorized_cross_meeting_memory(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    response = client.get(f"/api/meetings/{demo['id']}/preflight", headers=headers)
+    assert response.status_code == 200
+    assert {'related_meetings', 'carry_over_actions', 'suggested_questions'} <= response.json().keys()

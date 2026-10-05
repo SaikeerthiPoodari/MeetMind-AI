@@ -671,6 +671,9 @@ function Meeting({
   const [intelligence, setIntelligence] = useState<Awaited<
     ReturnType<typeof api.intelligence>
   > | null>(null);
+  const [preflight, setPreflight] = useState<Awaited<
+    ReturnType<typeof api.preflight>
+  > | null>(null);
   useEffect(() => {
     if (!meeting) return;
     if (!meeting.is_demo)
@@ -697,6 +700,10 @@ function Meeting({
       .intelligence(meeting.id)
       .then(setIntelligence)
       .catch(() => setIntelligence(null));
+    api
+      .preflight(meeting.id)
+      .then(setPreflight)
+      .catch(() => setPreflight(null));
   }, [meeting]);
   if (!meeting)
     return (
@@ -851,6 +858,55 @@ function Meeting({
               <p className="muted">No commitments recorded.</p>
             )}
           </section>
+        </section>
+      )}
+      {tab === "Overview" && preflight && (
+        <section className="panel preflight-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">PRE-MEETING INTELLIGENCE</p>
+              <h2>Carry the memory forward.</h2>
+            </div>
+            <span className="count">
+              {preflight.related_meetings.length} related
+            </span>
+          </div>
+          <div className="preflight-grid">
+            <div>
+              <strong>Related meetings</strong>
+              {preflight.related_meetings.map((item) => (
+                <div className="preflight-item" key={item.id}>
+                  <span>{item.title}</span>
+                  <small>{item.shared_terms.join(", ")}</small>
+                </div>
+              ))}
+              {!preflight.related_meetings.length && (
+                <p className="muted">No related meetings found.</p>
+              )}
+            </div>
+            <div>
+              <strong>Carry-over actions</strong>
+              {preflight.carry_over_actions.map((item, index) => (
+                <div
+                  className="preflight-item"
+                  key={`${item.meeting_id}-${index}`}
+                >
+                  <span>{item.task}</span>
+                  <small>
+                    {item.owner} · {item.status}
+                  </small>
+                </div>
+              ))}
+              {!preflight.carry_over_actions.length && (
+                <p className="muted">No open carry-over actions.</p>
+              )}
+            </div>
+          </div>
+          {preflight.suggested_questions.map((item) => (
+            <p className="muted" key={item}>
+              Suggested: {item}
+            </p>
+          ))}
         </section>
       )}
       {tab === "Overview" && (

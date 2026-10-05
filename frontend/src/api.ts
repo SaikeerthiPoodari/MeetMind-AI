@@ -294,6 +294,25 @@ export const api = {
         timestamp: string;
       }>;
     }>(`/api/meetings/${meetingId}/intelligence`),
+  preflight: (meetingId: string) =>
+    request<{
+      related_meetings: Array<{
+        id: string;
+        title: string;
+        status: string;
+        shared_terms: string[];
+        score: number;
+      }>;
+      carry_over_actions: Array<{
+        task: string;
+        owner: string;
+        deadline: string;
+        status: string;
+        meeting_id: string;
+        meeting_title: string;
+      }>;
+      suggested_questions: string[];
+    }>(`/api/meetings/${meetingId}/preflight`),
   profile: () =>
     request<{
       id: string;

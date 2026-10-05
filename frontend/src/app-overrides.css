@@ -222,3 +222,28 @@
   margin-top: 14px;
   font-size: 11px;
 }
+.preflight-panel {
+  margin: 20px 0;
+}
+.preflight-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 25px;
+}
+.preflight-grid > div > strong {
+  font-size: 11px;
+}
+.preflight-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 11px 0;
+  margin-top: 8px;
+  font-size: 11px;
+}
+.preflight-item small {
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
