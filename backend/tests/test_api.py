@@ -211,3 +211,12 @@ def test_meeting_chat_persists_and_is_owner_scoped(client):
     assert messages.status_code == 200
     assert any(item['message'] == 'I can follow up on this.' for item in messages.json()['items'])
     assert client.post(f"/api/meetings/{demo['id']}/chat", headers=headers, json={'message': ''}).status_code == 422
+
+def test_follow_up_generator_persists_action_based_draft(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    generated = client.post(f"/api/meetings/{demo['id']}/follow-up", headers=headers)
+    assert generated.status_code == 201
+    assert 'Action items:' in generated.json()['body']
+    history = client.get(f"/api/meetings/{demo['id']}/follow-up", headers=headers)
+    assert history.status_code == 200 and history.json()['items'][0]['id'] == generated.json()['id']

@@ -151,6 +151,15 @@
 .chat-input .primary {
   padding: 9px 13px;
 }
+.follow-up-panel {
+  margin: 20px 0;
+}
+.follow-up-panel pre {
+  white-space: pre-wrap;
+  font: 12px/1.7 inherit;
+  color: var(--muted);
+  margin: 0;
+}
 .auth-screen {
   min-height: 100vh;
   display: grid;

@@ -629,6 +629,12 @@ function Meeting({
   const [targetLanguage, setTargetLanguage] = useState("hi");
   const [translation, setTranslation] = useState("");
   const [translationError, setTranslationError] = useState("");
+  const [followUp, setFollowUp] = useState<{
+    subject: string;
+    body: string;
+  } | null>(null);
+  const [followUpBusy, setFollowUpBusy] = useState(false);
+  const [followUpError, setFollowUpError] = useState("");
   const [answer, setAnswer] = useState<{
     answer: string;
     confidence: number;
@@ -759,6 +765,19 @@ function Meeting({
       );
     }
   };
+  const generateFollowUp = async () => {
+    setFollowUpBusy(true);
+    setFollowUpError("");
+    try {
+      setFollowUp(await api.followUp(meeting.id));
+    } catch (e) {
+      setFollowUpError(
+        e instanceof Error ? e.message : "Unable to generate follow-up",
+      );
+    } finally {
+      setFollowUpBusy(false);
+    }
+  };
   return (
     <div className="page meeting-page">
       <button className="back-btn" onClick={onBack}>
@@ -792,9 +811,34 @@ function Meeting({
           <button className="outline" onClick={() => download("json")}>
             JSON
           </button>
+          <button
+            className="outline"
+            onClick={generateFollowUp}
+            disabled={followUpBusy}
+          >
+            {followUpBusy ? "Generating..." : "Follow-up"}
+          </button>
         </div>
       </div>
       {exportError && <p className="api-notice">{exportError}</p>}
+      {followUpError && <p className="api-notice">{followUpError}</p>}
+      {followUp && (
+        <section className="panel follow-up-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">PERSISTED DRAFT</p>
+              <h2>{followUp.subject}</h2>
+            </div>
+            <button
+              className="outline"
+              onClick={() => navigator.clipboard?.writeText(followUp.body)}
+            >
+              Copy
+            </button>
+          </div>
+          <pre>{followUp.body}</pre>
+        </section>
+      )}
       {tab === "Overview" && intelligence && (
         <section className="insight-grid intelligence-grid">
           <section className="panel">

@@ -332,6 +332,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
+  followUp: (meetingId: string) =>
+    request<{ id: string; subject: string; body: string; created_at: string }>(
+      `/api/meetings/${meetingId}/follow-up`,
+      { method: "POST" },
+    ),
+  followUpHistory: (meetingId: string) =>
+    request<{
+      items: Array<{
+        id: string;
+        subject: string;
+        body: string;
+        created_at: string;
+      }>;
+    }>(`/api/meetings/${meetingId}/follow-up`),
   profile: () =>
     request<{
       id: string;
