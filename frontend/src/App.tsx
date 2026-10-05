@@ -96,6 +96,7 @@ export default function App() {
   const [actions, setActions] = useState<ApiAction[]>([]);
   const [selected, setSelected] = useState<ApiMeeting | null>(null);
   const [error, setError] = useState("");
+  const [authRequired, setAuthRequired] = useState(false);
   const [language, setLanguage] = useState("en");
   const [notifications, setNotifications] = useState<
     Array<{ id: string; title: string; body: string; read: boolean }>
@@ -112,9 +113,10 @@ export default function App() {
         const demo = meetings.find((m) => m.is_demo);
         if (demo) setSelected(demo);
       })
-      .catch((e) =>
-        setError(e instanceof Error ? e.message : "API unavailable"),
-      );
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "API unavailable");
+        setAuthRequired(true);
+      });
     Promise.all([api.profile(), api.notifications()])
       .then(([profile, notificationData]) => {
         setLanguage(profile.language);
@@ -143,6 +145,13 @@ export default function App() {
       ),
     );
   };
+  const signOut = async () => {
+    await api.logout();
+    setMeetings([]);
+    setActions([]);
+    setSelected(null);
+    setAuthRequired(true);
+  };
   const openMeeting = (meeting: ApiMeeting | null = selected) => {
     if (meeting) {
       setSelected(meeting);
@@ -157,6 +166,9 @@ export default function App() {
       setError(e instanceof Error ? e.message : "Unable to open meeting");
     }
   };
+  if (authRequired) {
+    return <AuthScreen onAuthenticated={() => window.location.reload()} />;
+  }
   return (
     <div className={dark ? "app dark" : "app"}>
       <aside className={menu ? "sidebar open" : "sidebar"}>
@@ -276,7 +288,13 @@ export default function App() {
             <button className="icon-btn" onClick={() => setDark(!dark)}>
               {dark ? <Zap size={18} /> : <Moon size={18} />}
             </button>
-            <div className="avatar avatar-sm">JD</div>
+            <button
+              className="avatar avatar-sm"
+              onClick={signOut}
+              title="Sign out"
+            >
+              JD
+            </button>
           </div>
           {showNotifications && (
             <div className="notification-popover">
@@ -1398,6 +1416,88 @@ function Empty({ onClick }: { onClick: () => void }) {
       <button className="primary" onClick={onClick}>
         Back to overview
       </button>
+    </div>
+  );
+}
+
+function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (mode === "login") await api.login(email, password);
+      else await api.register(email, password);
+      onAuthenticated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Authentication failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="auth-screen">
+      <section className="panel auth-card">
+        <div className="brand auth-brand">
+          <div className="brand-mark">
+            <Sparkles size={16} />
+          </div>
+          <span>
+            meetmind<span className="muted">.ai</span>
+          </span>
+        </div>
+        <p className="eyebrow">SECURE WORKSPACE</p>
+        <h1>{mode === "login" ? "Welcome back." : "Create your workspace."}</h1>
+        <p className="muted">
+          Your meetings, evidence, and actions stay scoped to your account.
+        </p>
+        <form onSubmit={submit} className="auth-form">
+          <label>
+            Email
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+            />
+          </label>
+          <label>
+            Password
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete={
+                mode === "login" ? "current-password" : "new-password"
+              }
+            />
+          </label>
+          {error && <p className="api-notice">{error}</p>}
+          <button className="primary" disabled={busy}>
+            {busy
+              ? "Working..."
+              : mode === "login"
+                ? "Sign in"
+                : "Create account"}
+          </button>
+        </form>
+        <button
+          className="text-btn auth-switch"
+          onClick={() => setMode(mode === "login" ? "register" : "login")}
+        >
+          {mode === "login"
+            ? "Need an account? Register"
+            : "Already have an account? Sign in"}
+        </button>
+      </section>
     </div>
   );
 }

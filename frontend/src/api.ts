@@ -40,16 +40,46 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json();
 }
 export const api = {
-  async bootstrap() {
-    const login = await request<{ access_token: string }>("/api/auth/login", {
+  login: async (email: string, password: string) => {
+    const result = await request<{
+      access_token: string;
+      user: { id: string; email: string; role: string };
+    }>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({
-        email: "demo@meetmind.ai",
-        password: "DemoPass123!",
-      }),
+      body: JSON.stringify({ email, password }),
     });
-    token = login.access_token;
+    token = result.access_token;
     localStorage.setItem("meetmind_token", token);
+    return result.user;
+  },
+  register: async (email: string, password: string) => {
+    const result = await request<{
+      access_token: string;
+      user: { id: string; email: string; role: string };
+    }>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    token = result.access_token;
+    localStorage.setItem("meetmind_token", token);
+    return result.user;
+  },
+  logout: async () => {
+    if (token)
+      await request("/api/auth/logout", { method: "POST" }).catch(
+        () => undefined,
+      );
+    token = "";
+    localStorage.removeItem("meetmind_token");
+  },
+  async bootstrap() {
+    if (token) {
+      await request("/api/me").catch(async () => {
+        await api.login("demo@meetmind.ai", "DemoPass123!");
+      });
+    } else {
+      await api.login("demo@meetmind.ai", "DemoPass123!");
+    }
     const meetings = await request<{ items: ApiMeeting[] }>("/api/meetings");
     const actions = await request<{ items: ApiAction[] }>("/api/actions");
     return { meetings: meetings.items, actions: actions.items };
