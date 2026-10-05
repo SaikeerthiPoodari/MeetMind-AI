@@ -3,6 +3,7 @@ dist/
 .venv/
 __pycache__/
 *.pyc
+*.tsbuildinfo
 .env
 .pytest_cache/
 uploads/
