@@ -53,3 +53,17 @@ def test_upload_stores_recording_metadata(client):
     assert response.status_code == 200
     assert response.json()['status'] == 'uploaded'
     assert response.json()['recording_id']
+
+def test_search_and_exports_are_authorized(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    search = client.get('/api/search?q=PostgreSQL', headers=headers)
+    assert search.status_code == 200
+    assert search.json()['total'] >= 1
+    exported = client.get(f"/api/meetings/{demo['id']}/export?format=json", headers=headers)
+    assert exported.status_code == 200
+    assert exported.headers['content-type'].startswith('application/json')
+    assert 'transcript' in exported.json()
+    text_export = client.get(f"/api/meetings/{demo['id']}/export?format=txt", headers=headers)
+    assert text_export.status_code == 200
+    assert 'TRANSCRIPT' in text_export.text

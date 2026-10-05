@@ -1,7 +1,9 @@
 import os
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+import json
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
@@ -120,6 +122,30 @@ def risks(meeting_id: str, user: User = Depends(current_user), db: Session = Dep
 def questions(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == owned_id(db, meeting_id, user))).all()
     return {"items": [{"id": x.id, "question": x.question, "speaker": x.speaker, "timestamp": x.timestamp, "status": x.status} for x in items]}
+
+@app.get("/api/search")
+def search(q: str = Query(min_length=2, max_length=200), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    needle = q.lower(); results = []
+    meetings = db.scalars(select(Meeting).where(Meeting.owner_id == user.id)).all()
+    for meeting in meetings:
+        if needle in meeting.title.lower() or needle in meeting.summary.lower(): results.append({"type": "meeting", "meeting_id": meeting.id, "title": meeting.title, "matched": meeting.summary or meeting.title})
+        for segment in db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all():
+            if needle in f"{segment.text} {segment.speaker} {segment.topic}".lower(): results.append({"type": "transcript", "meeting_id": meeting.id, "title": meeting.title, "timestamp": segment.timestamp, "speaker": segment.speaker, "matched": segment.text})
+        for action in db.scalars(select(ActionItem).where(ActionItem.meeting_id == meeting.id)).all():
+            if needle in action.task.lower(): results.append({"type": "action", "meeting_id": meeting.id, "title": meeting.title, "matched": action.task, "status": action.status})
+    return {"query": q, "items": results, "total": len(results)}
+
+@app.get("/api/meetings/{meeting_id}/export")
+def export_meeting(meeting_id: str, format: str = Query("json", pattern="^(json|txt)$"), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id).order_by(TranscriptSegment.timestamp)).all()
+    decisions_data = db.scalars(select(Decision).where(Decision.meeting_id == meeting.id)).all()
+    risks_data = db.scalars(select(Risk).where(Risk.meeting_id == meeting.id)).all()
+    questions_data = db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == meeting.id)).all()
+    payload = {"meeting": meeting_json(meeting), "transcript": [{"timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in segments], "decisions": [{"decision": x.decision, "speaker": x.speaker, "timestamp": x.timestamp, "evidence": x.evidence, "confidence": x.confidence} for x in decisions_data], "risks": [{"risk": x.risk, "severity": x.severity, "timestamp": x.timestamp, "recommendation": x.recommendation} for x in risks_data], "questions": [{"question": x.question, "speaker": x.speaker, "timestamp": x.timestamp} for x in questions_data]}
+    if format == "json": return Response(content=json.dumps(payload, indent=2), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="meetmind-{meeting.id}.json"'})
+    lines = [meeting.title, "", "SUMMARY", meeting.summary, "", "TRANSCRIPT"] + [f"[{x['timestamp']}] {x['speaker']}: {x['text']}" for x in payload["transcript"]] + ["", "DECISIONS"] + [f"- {x['decision']} ({x['timestamp']})" for x in payload["decisions"]] + ["", "RISKS"] + [f"- {x['risk']} [{x['severity']}]" for x in payload["risks"]]
+    return Response(content="\n".join(lines), media_type="text/plain", headers={"Content-Disposition": f'attachment; filename="meetmind-{meeting.id}.txt"'})
 
 @app.post("/api/meetings/{meeting_id}/upload")
 async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):

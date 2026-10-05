@@ -19,4 +19,6 @@ export const api = {
   listActions: () => request<{ items: ApiAction[]; total: number }>('/api/actions'),
   updateAction: (id: string, payload: Partial<ApiAction>) => request<ApiAction>(`/api/actions/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   ask: (meetingId: string, question: string) => request<{ answer: string; confidence: number; evidence: Array<{ timestamp: string; speaker: string; text?: string }> }>(`/api/meetings/${meetingId}/ask`, { method: 'POST', body: JSON.stringify({ question }) }),
+  search: (query: string) => request<{ items: Array<{ type: string; meeting_id: string; title: string; matched: string; timestamp?: string; speaker?: string }>; total: number }>(`/api/search?q=${encodeURIComponent(query)}`),
+  exportUrl: (meetingId: string, format: 'json' | 'txt') => `${API_URL}/api/meetings/${meetingId}/export?format=${format}`,
 };
