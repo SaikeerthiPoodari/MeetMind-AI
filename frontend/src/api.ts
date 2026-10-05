@@ -82,8 +82,29 @@ export const api = {
       }>;
       total: number;
     }>(`/api/search?q=${encodeURIComponent(query)}`),
-  exportUrl: (meetingId: string, format: "json" | "txt") =>
-    `${API_URL}/api/meetings/${meetingId}/export?format=${format}`,
+  exportUrl: (
+    meetingId: string,
+    format: "json" | "txt" | "md" | "pdf" | "docx",
+  ) => `${API_URL}/api/meetings/${meetingId}/export?format=${format}`,
+  downloadExport: async (
+    meetingId: string,
+    format: "json" | "txt" | "md" | "pdf" | "docx",
+  ) => {
+    const response = await fetch(api.exportUrl(meetingId, format), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok)
+      throw new Error(
+        (await response.json().catch(() => null))?.detail ?? "Export failed",
+      );
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `meetmind-${meetingId}.${format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  },
   createMeeting: (title: string, description = "") =>
     request<ApiMeeting>("/api/meetings", {
       method: "POST",

@@ -1,5 +1,8 @@
 import os
 import json
+import html
+import io
+import zipfile
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -98,6 +101,57 @@ def action_json(action: ActionItem):
 def meeting_json(meeting: Meeting):
     return {"id": meeting.id, "title": meeting.title, "description": meeting.description, "status": meeting.status, "is_demo": meeting.is_demo, "summary": meeting.summary, "created_at": meeting.created_at.isoformat(), "actions": [action_json(a) for a in meeting.actions]}
 def owned_id(db: Session, meeting_id: str, user: User) -> str: return user_meeting(db, meeting_id, user).id
+
+def report_lines(payload: dict, markdown: bool = False) -> list[str]:
+    title = f"# {payload['meeting']['title']}" if markdown else payload["meeting"]["title"]
+    lines = [title, "", "## Summary" if markdown else "SUMMARY", payload["meeting"]["summary"] or "Not specified", "", "## Transcript" if markdown else "TRANSCRIPT"]
+    lines.extend((f"- **{x['timestamp']} — {x['speaker']}:** {x['text']}" if markdown else f"[{x['timestamp']}] {x['speaker']}: {x['text']}") for x in payload["transcript"])
+    lines += ["", "## Decisions" if markdown else "DECISIONS"]
+    lines.extend((f"- {x['decision']} ({x['timestamp']}; evidence: {x['evidence']})" if markdown else f"- {x['decision']} ({x['timestamp']}) — {x['evidence']}") for x in payload["decisions"])
+    lines += ["", "## Action items" if markdown else "ACTION ITEMS"]
+    lines.extend(f"- {x['task']} — {x['owner']} — {x['status']} — due {x['deadline']}" for x in payload["meeting"]["actions"])
+    lines += ["", "## Risks" if markdown else "RISKS"]
+    lines.extend((f"- {x['risk']} [{x['severity']}]: {x['recommendation']}" if markdown else f"- {x['risk']} [{x['severity']}] — {x['recommendation']}") for x in payload["risks"])
+    lines += ["", "## Open questions" if markdown else "OPEN QUESTIONS"]
+    lines.extend(f"- {x['question']} ({x['timestamp']})" for x in payload["questions"])
+    return lines
+
+def make_docx(lines: list[str]) -> bytes:
+    paragraphs = "".join(f"<w:p><w:r><w:t xml:space=\"preserve\">{html.escape(line)}</w:t></w:r></w:p>" for line in lines)
+    document = f"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{paragraphs}<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\"/></w:sectPr></w:body></w:document>"
+    content_types = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"
+    rels = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", rels)
+        archive.writestr("word/document.xml", document)
+    return output.getvalue()
+
+def make_pdf(lines: list[str]) -> bytes:
+    def pdf_text(value: str) -> str:
+        return value.encode("latin-1", "replace").decode("latin-1").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    commands = ["BT", "/F1 10 Tf", "50 780 Td"]
+    for index, line in enumerate(lines):
+        if index: commands.append("0 -15 Td")
+        commands.append(f"({pdf_text(line[:180])}) Tj")
+    commands.append("ET")
+    stream = "\n".join(commands).encode("latin-1", "replace")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+    ]
+    output = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for number, obj in enumerate(objects, 1):
+        offsets.append(len(output)); output.extend(f"{number} 0 obj\n".encode()); output.extend(obj); output.extend(b"\nendobj\n")
+    xref = len(output); output.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode())
+    output.extend(b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets[1:]))
+    output.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode())
+    return bytes(output)
 
 @app.get("/api/health")
 def health():
@@ -198,16 +252,25 @@ def compare_meetings(first_id: str, second_id: str, user: User = Depends(current
     return {"first": {"id": first.id, "title": first.title}, "second": {"id": second.id, "title": second.title}, "decisions": diff(Decision, "decision"), "actions": diff(ActionItem, "task"), "risks": diff(Risk, "risk")}
 
 @app.get("/api/meetings/{meeting_id}/export")
-def export_meeting(meeting_id: str, format: str = Query("json", pattern="^(json|txt)$"), user: User = Depends(current_user), db: Session = Depends(get_db)):
+def export_meeting(meeting_id: str, format: str = Query("json", pattern="^(json|txt|md|pdf|docx)$"), user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = user_meeting(db, meeting_id, user)
     segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id).order_by(TranscriptSegment.timestamp)).all()
     decisions_data = db.scalars(select(Decision).where(Decision.meeting_id == meeting.id)).all()
     risks_data = db.scalars(select(Risk).where(Risk.meeting_id == meeting.id)).all()
     questions_data = db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == meeting.id)).all()
     payload = {"meeting": meeting_json(meeting), "transcript": [{"timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in segments], "decisions": [{"decision": x.decision, "speaker": x.speaker, "timestamp": x.timestamp, "evidence": x.evidence, "confidence": x.confidence} for x in decisions_data], "risks": [{"risk": x.risk, "severity": x.severity, "timestamp": x.timestamp, "recommendation": x.recommendation} for x in risks_data], "questions": [{"question": x.question, "speaker": x.speaker, "timestamp": x.timestamp} for x in questions_data]}
-    if format == "json": return Response(content=json.dumps(payload, indent=2), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="meetmind-{meeting.id}.json"'})
-    lines = [meeting.title, "", "SUMMARY", meeting.summary, "", "TRANSCRIPT"] + [f"[{x['timestamp']}] {x['speaker']}: {x['text']}" for x in payload["transcript"]] + ["", "DECISIONS"] + [f"- {x['decision']} ({x['timestamp']})" for x in payload["decisions"]] + ["", "RISKS"] + [f"- {x['risk']} [{x['severity']}]" for x in payload["risks"]]
-    return Response(content="\n".join(lines), media_type="text/plain", headers={"Content-Disposition": f'attachment; filename="meetmind-{meeting.id}.txt"'})
+    if format == "json":
+        content, media_type = json.dumps(payload, indent=2), "application/json"
+    elif format == "md":
+        content, media_type = "\n".join(report_lines(payload, markdown=True)), "text/markdown"
+    elif format == "txt":
+        content, media_type = "\n".join(report_lines(payload)), "text/plain"
+    elif format == "docx":
+        content, media_type = make_docx(report_lines(payload)), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    else:
+        content, media_type = make_pdf(report_lines(payload)), "application/pdf"
+    extension = {"md": "md", "docx": "docx", "pdf": "pdf"}.get(format, format)
+    return Response(content=content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="meetmind-{meeting.id}.{extension}"'})
 
 @app.post("/api/meetings/{meeting_id}/upload")
 async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):

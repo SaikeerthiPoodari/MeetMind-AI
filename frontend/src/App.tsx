@@ -544,6 +544,7 @@ function Meeting({
   const [compareId, setCompareId] = useState("");
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
+  const [exportError, setExportError] = useState("");
   const [answer, setAnswer] = useState<{
     answer: string;
     confidence: number;
@@ -597,6 +598,14 @@ function Meeting({
       });
     }
   };
+  const download = async (format: "txt" | "json" | "md" | "pdf" | "docx") => {
+    try {
+      setExportError("");
+      await api.downloadExport(meeting.id, format);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed");
+    }
+  };
   return (
     <div className="page meeting-page">
       <button className="back-btn" onClick={onBack}>
@@ -615,22 +624,24 @@ function Meeting({
           </p>
         </div>
         <div className="top-actions">
-          <a
-            className="outline"
-            href={api.exportUrl(meeting.id, "txt")}
-            download
-          >
+          <button className="outline" onClick={() => download("txt")}>
             <FileText size={16} /> TXT
-          </a>
-          <a
-            className="outline"
-            href={api.exportUrl(meeting.id, "json")}
-            download
-          >
+          </button>
+          <button className="outline" onClick={() => download("md")}>
+            MD
+          </button>
+          <button className="outline" onClick={() => download("pdf")}>
+            PDF
+          </button>
+          <button className="outline" onClick={() => download("docx")}>
+            DOCX
+          </button>
+          <button className="outline" onClick={() => download("json")}>
             JSON
-          </a>
+          </button>
         </div>
       </div>
+      {exportError && <p className="api-notice">{exportError}</p>}
       <div className="tabs">
         {[
           "Overview",

@@ -78,6 +78,11 @@ def test_search_and_exports_are_authorized(client):
     text_export = client.get(f"/api/meetings/{demo['id']}/export?format=txt", headers=headers)
     assert text_export.status_code == 200
     assert 'TRANSCRIPT' in text_export.text
+    for export_format, content_type in [('md', 'text/markdown'), ('pdf', 'application/pdf'), ('docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')]:
+        response = client.get(f"/api/meetings/{demo['id']}/export?format={export_format}", headers=headers)
+        assert response.status_code == 200
+        assert response.headers['content-type'].startswith(content_type)
+        assert len(response.content) > 100
 
 def test_meeting_lifecycle_persists_session(client):
     headers = auth_headers(client)
