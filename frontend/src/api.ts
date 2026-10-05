@@ -313,6 +313,25 @@ export const api = {
       }>;
       suggested_questions: string[];
     }>(`/api/meetings/${meetingId}/preflight`),
+  chat: (meetingId: string) =>
+    request<{
+      items: Array<{
+        id: string;
+        user_id: string;
+        message: string;
+        created_at: string;
+      }>;
+    }>(`/api/meetings/${meetingId}/chat`),
+  sendChat: (meetingId: string, message: string) =>
+    request<{
+      id: string;
+      user_id: string;
+      message: string;
+      created_at: string;
+    }>(`/api/meetings/${meetingId}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
   profile: () =>
     request<{
       id: string;

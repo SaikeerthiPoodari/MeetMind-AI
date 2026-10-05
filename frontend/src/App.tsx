@@ -1188,6 +1188,10 @@ function Actions({
 }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [message, setMessage] = useState("");
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ id: string; message: string; created_at: string }>
+  >([]);
   const complete = async (a: ApiAction) => {
     try {
       const updated = await api.updateAction(a.id, { status: "Completed" });
@@ -1343,6 +1347,10 @@ function Room({
         "Recording locally in this browser. You can stop at any time.",
       );
       meetingRef.current = meeting;
+      api
+        .chat(meeting.id)
+        .then((result) => setChatMessages(result.items))
+        .catch(() => undefined);
     } catch (e) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       setMessage(
@@ -1398,6 +1406,19 @@ function Room({
       ?.getAudioTracks()
       .forEach((track) => (track.enabled = next));
     setMicOn(next);
+  };
+  const sendMessage = async () => {
+    const meeting = meetingRef.current;
+    if (!meeting || !chatInput.trim()) return;
+    try {
+      const sent = await api.sendChat(meeting.id, chatInput.trim());
+      setChatMessages((current) => [...current, sent]);
+      setChatInput("");
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : "Unable to send chat message.",
+      );
+    }
   };
   const toggleCamera = () => {
     const next = !cameraOn;
@@ -1539,6 +1560,36 @@ function Room({
           </div>
         )}
         {message && <p className="muted room-message">{message}</p>}
+        {recording && (
+          <div className="room-chat">
+            <div className="panel-head">
+              <h2>Meeting chat</h2>
+              <span className="muted">Persisted</span>
+            </div>
+            <div className="chat-messages">
+              {chatMessages.map((item) => (
+                <p key={item.id}>
+                  <span>{new Date(item.created_at).toLocaleTimeString()}</span>
+                  {item.message}
+                </p>
+              ))}
+              {!chatMessages.length && (
+                <span className="muted">No messages yet.</span>
+              )}
+            </div>
+            <div className="chat-input">
+              <input
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && sendMessage()}
+                placeholder="Send a message to the meeting"
+              />
+              <button className="primary" onClick={sendMessage}>
+                Send
+              </button>
+            </div>
+          </div>
+        )}
         <p className="room-note">
           This room captures one local browser participant. Multi-user WebRTC,
           TURN, live captions, and external transcription require provider

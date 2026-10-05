@@ -110,6 +110,47 @@
   text-align: center;
   margin: 24px 0 0;
 }
+.room-chat {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.chat-messages {
+  max-height: 150px;
+  overflow: auto;
+  display: grid;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.chat-messages p {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--purple-soft);
+  border-radius: 7px;
+  font-size: 11px;
+}
+.chat-messages p span {
+  color: var(--muted);
+  font-size: 9px;
+  margin-right: 8px;
+}
+.chat-input {
+  display: flex;
+  gap: 8px;
+}
+.chat-input input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  padding: 10px;
+  font: inherit;
+  font-size: 11px;
+}
+.chat-input .primary {
+  padding: 9px 13px;
+}
 .auth-screen {
   min-height: 100vh;
   display: grid;

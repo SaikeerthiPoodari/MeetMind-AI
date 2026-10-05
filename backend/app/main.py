@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, AuditLog, Decision, Meeting, MeetingQuestion, MeetingSession, Notification, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
+from .models import ActionItem, AuditLog, Decision, Meeting, MeetingChatMessage, MeetingQuestion, MeetingSession, Notification, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
 from .storage import store_bytes
 from .transcription.parser import parse_text
 from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
@@ -91,6 +91,8 @@ class PreferenceUpdate(BaseModel):
     language: str = Field(default="en", min_length=2, max_length=8)
     timezone: str = Field(default="UTC", min_length=1, max_length=80)
     notifications_enabled: bool = True
+class ChatMessageCreate(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
 
 def user_meeting(db: Session, meeting_id: str, user: User) -> Meeting:
     statement = select(Meeting).where(Meeting.owner_id == user.id, Meeting.is_demo.is_(True)) if meeting_id == "apollo-demo" else select(Meeting).where(Meeting.id == meeting_id, Meeting.owner_id == user.id)
@@ -213,7 +215,7 @@ def export_user_data(user: User = Depends(current_user), db: Session = Depends(g
 @app.delete("/api/me", status_code=204)
 def delete_account(user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting_ids = select(Meeting.id).where(Meeting.owner_id == user.id)
-    for model in (ActionItem, Recording, TranscriptSegment, Decision, Risk, OpenQuestion, MeetingSession, MeetingQuestion):
+    for model in (ActionItem, Recording, TranscriptSegment, Decision, Risk, OpenQuestion, MeetingSession, MeetingQuestion, MeetingChatMessage):
         db.execute(delete(model).where(model.meeting_id.in_(meeting_ids)))
     db.execute(delete(Meeting).where(Meeting.owner_id == user.id))
     db.execute(delete(Notification).where(Notification.user_id == user.id))
@@ -389,6 +391,19 @@ def join_meeting(meeting_id: str, user: User = Depends(current_user), db: Sessio
     meeting = user_meeting(db, meeting_id, user)
     session = MeetingSession(meeting_id=meeting.id, user_id=user.id, status="joined"); db.add(session); db.commit(); db.refresh(session)
     return {"session_id": session.id, "meeting_id": meeting.id, "status": session.status, "joined_at": session.joined_at.isoformat()}
+
+@app.get("/api/meetings/{meeting_id}/chat")
+def meeting_chat(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    items = db.scalars(select(MeetingChatMessage).where(MeetingChatMessage.meeting_id == meeting.id).order_by(MeetingChatMessage.created_at)).all()
+    return {"items": [{"id": item.id, "meeting_id": item.meeting_id, "user_id": item.user_id, "message": item.message, "created_at": item.created_at.isoformat()} for item in items]}
+
+@app.post("/api/meetings/{meeting_id}/chat", status_code=201)
+def send_meeting_chat(meeting_id: str, payload: ChatMessageCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    item = MeetingChatMessage(meeting_id=meeting.id, user_id=user.id, message=payload.message.strip())
+    db.add(item); audit(db, user, "meeting.chat_message_created", "meeting", meeting.id); db.commit(); db.refresh(item)
+    return {"id": item.id, "meeting_id": item.meeting_id, "user_id": item.user_id, "message": item.message, "created_at": item.created_at.isoformat()}
 
 @app.post("/api/meetings/{meeting_id}/start")
 def start_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):

@@ -189,3 +189,13 @@ def test_preflight_returns_authorized_cross_meeting_memory(client):
     response = client.get(f"/api/meetings/{demo['id']}/preflight", headers=headers)
     assert response.status_code == 200
     assert {'related_meetings', 'carry_over_actions', 'suggested_questions'} <= response.json().keys()
+
+def test_meeting_chat_persists_and_is_owner_scoped(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    sent = client.post(f"/api/meetings/{demo['id']}/chat", headers=headers, json={'message': 'I can follow up on this.'})
+    assert sent.status_code == 201
+    messages = client.get(f"/api/meetings/{demo['id']}/chat", headers=headers)
+    assert messages.status_code == 200
+    assert any(item['message'] == 'I can follow up on this.' for item in messages.json()['items'])
+    assert client.post(f"/api/meetings/{demo['id']}/chat", headers=headers, json={'message': ''}).status_code == 422

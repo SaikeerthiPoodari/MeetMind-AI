@@ -138,3 +138,11 @@ class AuditLog(Base):
     resource_id: Mapped[str] = mapped_column(String(36), default="")
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+class MeetingChatMessage(Base):
+    __tablename__ = "meeting_chat_messages"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
