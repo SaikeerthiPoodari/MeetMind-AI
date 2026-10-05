@@ -21,4 +21,10 @@ export const api = {
   ask: (meetingId: string, question: string) => request<{ answer: string; confidence: number; evidence: Array<{ timestamp: string; speaker: string; text?: string }> }>(`/api/meetings/${meetingId}/ask`, { method: 'POST', body: JSON.stringify({ question }) }),
   search: (query: string) => request<{ items: Array<{ type: string; meeting_id: string; title: string; matched: string; timestamp?: string; speaker?: string }>; total: number }>(`/api/search?q=${encodeURIComponent(query)}`),
   exportUrl: (meetingId: string, format: 'json' | 'txt') => `${API_URL}/api/meetings/${meetingId}/export?format=${format}`,
+  createMeeting: (title: string, description = '') => request<ApiMeeting>('/api/meetings', { method: 'POST', body: JSON.stringify({ title, description }) }),
+  upload: async (meetingId: string, file: File) => { const body = new FormData(); body.append('file', file); const response = await fetch(`${API_URL}/api/meetings/${meetingId}/upload`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail ?? 'Upload failed'); return response.json() as Promise<{ status: string; segments_created: number; message: string }>; },
+  join: (meetingId: string) => request(`/api/meetings/${meetingId}/join`, { method: 'POST' }),
+  start: (meetingId: string) => request(`/api/meetings/${meetingId}/start`, { method: 'POST' }),
+  end: (meetingId: string) => request(`/api/meetings/${meetingId}/end`, { method: 'POST' }),
+  transcript: (meetingId: string) => request<{ items: Array<{ id: string; timestamp: string; speaker: string; text: string; topic: string }> }>(`/api/meetings/${meetingId}/transcript`),
 };
