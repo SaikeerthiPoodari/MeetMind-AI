@@ -866,12 +866,21 @@ function Actions({
   actions: ApiAction[];
   setActions: (v: ApiAction[]) => void;
 }) {
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [message, setMessage] = useState("");
   const complete = async (a: ApiAction) => {
     try {
       const updated = await api.updateAction(a.id, { status: "Completed" });
       setActions(actions.map((x) => (x.id === a.id ? updated : x)));
-    } catch {}
+      setMessage("Action status saved.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Unable to update action.");
+    }
   };
+  const visibleActions =
+    filterStatus === "All"
+      ? actions
+      : actions.filter((a) => a.status === filterStatus);
   return (
     <div className="page">
       <section className="welcome">
@@ -891,10 +900,22 @@ function Actions({
             <p className="eyebrow">ALL WORKSPACE ACTIONS</p>
             <h2>Action center</h2>
           </div>
-          <div className="filter">
-            <Filter size={15} /> Persisted
-          </div>
+          <label className="filter">
+            <Filter size={15} />
+            <select
+              value={filterStatus}
+              onChange={(event) => setFilterStatus(event.target.value)}
+              aria-label="Filter actions by status"
+            >
+              <option>All</option>
+              <option>Pending</option>
+              <option>In progress</option>
+              <option>Blocked</option>
+              <option>Completed</option>
+            </select>
+          </label>
         </div>
+        {message && <p className="muted">{message}</p>}
         <div className="action-table">
           <div className="action-head">
             <span>Task</span>
@@ -903,7 +924,7 @@ function Actions({
             <span>Due</span>
             <span>Status</span>
           </div>
-          {actions.map((a) => (
+          {visibleActions.map((a) => (
             <div className="action-row" key={a.id}>
               <div className="task">
                 <span className={`priority ${a.priority.toLowerCase()}`} />
@@ -920,6 +941,9 @@ function Actions({
               </button>
             </div>
           ))}
+          {visibleActions.length === 0 && (
+            <p className="muted">No actions match this filter.</p>
+          )}
         </div>
       </section>
     </div>
