@@ -260,6 +260,25 @@ def questions(meeting_id: str, user: User = Depends(current_user), db: Session =
     items = db.scalars(select(OpenQuestion).where(OpenQuestion.meeting_id == owned_id(db, meeting_id, user))).all()
     return {"items": [{"id": x.id, "question": x.question, "speaker": x.speaker, "timestamp": x.timestamp, "status": x.status} for x in items]}
 
+@app.get("/api/meetings/{meeting_id}/health")
+def meeting_health(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting_id = owned_id(db, meeting_id, user)
+    transcript_count = db.scalar(select(func.count(TranscriptSegment.id)).where(TranscriptSegment.meeting_id == meeting_id)) or 0
+    decision_count = db.scalar(select(func.count(Decision.id)).where(Decision.meeting_id == meeting_id)) or 0
+    action_items = db.scalars(select(ActionItem).where(ActionItem.meeting_id == meeting_id)).all()
+    risk_items = db.scalars(select(Risk).where(Risk.meeting_id == meeting_id)).all()
+    evidence = min(100, transcript_count * 12.5)
+    alignment = min(100, 40 + decision_count * 15)
+    follow_through = 100 if not action_items else round(sum(item.status == "Completed" for item in action_items) / len(action_items) * 100)
+    risk_score = max(0, 100 - sum(25 if item.severity.lower() == "high" else 10 for item in risk_items if item.status.upper() != "RESOLVED"))
+    score = round((evidence + alignment + follow_through + risk_score) / 4)
+    signals = []
+    if transcript_count: signals.append({"label": "Transcript evidence", "value": transcript_count, "status": "available"})
+    if decision_count: signals.append({"label": "Decisions recorded", "value": decision_count, "status": "available"})
+    signals.append({"label": "Action follow-through", "value": f"{follow_through}%", "status": "strong" if follow_through >= 70 else "watch"})
+    signals.append({"label": "Open risk exposure", "value": len([item for item in risk_items if item.status.upper() != "RESOLVED"]), "status": "watch" if risk_score < 80 else "strong"})
+    return {"meeting_id": meeting_id, "score": score, "components": {"evidence": round(evidence), "alignment": round(alignment), "follow_through": follow_through, "risk": risk_score}, "signals": signals}
+
 @app.post("/api/meetings/{meeting_id}/translate")
 def translate_meeting(meeting_id: str, payload: TranslationRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = user_meeting(db, meeting_id, user)

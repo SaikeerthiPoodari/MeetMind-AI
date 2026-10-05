@@ -444,6 +444,17 @@ function Dashboard({
   onOpen: (m?: ApiMeeting | null) => void;
 }) {
   const demo = meetings.find((m) => m.is_demo);
+  const [health, setHealth] = useState<{
+    score: number;
+    signals: Array<{ label: string; value: string | number; status: string }>;
+  } | null>(null);
+  useEffect(() => {
+    if (demo)
+      api
+        .meetingHealth(demo.id)
+        .then(setHealth)
+        .catch(() => setHealth(null));
+  }, [demo?.id]);
   return (
     <div className="page">
       <section className="welcome">
@@ -499,17 +510,18 @@ function Dashboard({
           </div>
           <div className="pulse-layout">
             <div className="score-ring">
-              <strong>82</strong>
+              <strong>{health?.score ?? "--"}</strong>
               <span>/100</span>
               <small>meeting health</small>
             </div>
             <div className="signal-list">
-              <Signal
-                text={`${actions.filter((a) => a.status !== "Completed").length} open actions`}
-                tone="violet"
-              />
-              <Signal text="Transcript evidence available" tone="orange" />
-              <Signal text="Provider-safe demo mode" tone="red" />
+              {health?.signals.map((signal) => (
+                <Signal
+                  key={signal.label}
+                  text={`${signal.label}: ${signal.value}`}
+                  tone={signal.status === "watch" ? "orange" : "violet"}
+                />
+              )) ?? <Signal text="Loading meeting health" tone="violet" />}
             </div>
           </div>
         </section>

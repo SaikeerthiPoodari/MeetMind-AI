@@ -268,6 +268,12 @@ export const api = {
         status: string;
       }>;
     }>(`/api/meetings/${meetingId}/questions`),
+  meetingHealth: (meetingId: string) =>
+    request<{
+      score: number;
+      components: Record<string, number>;
+      signals: Array<{ label: string; value: string | number; status: string }>;
+    }>(`/api/meetings/${meetingId}/health`),
   profile: () =>
     request<{
       id: string;

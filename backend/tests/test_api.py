@@ -162,3 +162,13 @@ def test_authorized_meeting_comparison_returns_diffs(client):
     response = client.get(f"/api/compare/meetings?first_id={demo['id']}&second_id={created['id']}", headers=headers)
     assert response.status_code == 200
     assert set(response.json()['decisions']) == {'new', 'removed', 'unchanged'}
+
+def test_meeting_health_is_computed_from_persisted_records(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    response = client.get(f"/api/meetings/{demo['id']}/health", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert 0 <= body['score'] <= 100
+    assert body['components']['evidence'] > 0
+    assert any(signal['label'] == 'Transcript evidence' for signal in body['signals'])
