@@ -37,7 +37,14 @@ import mr from "./locales/mr.json";
 import bn from "./locales/bn.json";
 
 type Page =
-  "dashboard" | "meeting" | "actions" | "new" | "search" | "room" | "privacy";
+  | "dashboard"
+  | "meeting"
+  | "actions"
+  | "new"
+  | "search"
+  | "room"
+  | "privacy"
+  | "admin";
 const demoSegments = [
   [
     "00:00",
@@ -98,6 +105,7 @@ export default function App() {
   const [selected, setSelected] = useState<ApiMeeting | null>(null);
   const [error, setError] = useState("");
   const [authRequired, setAuthRequired] = useState(false);
+  const [role, setRole] = useState("");
   const [language, setLanguage] = useState("en");
   const [notifications, setNotifications] = useState<
     Array<{ id: string; title: string; body: string; read: boolean }>
@@ -121,6 +129,7 @@ export default function App() {
     Promise.all([api.profile(), api.notifications()])
       .then(([profile, notificationData]) => {
         setLanguage(profile.language);
+        setRole(profile.role);
         setNotifications(notificationData.items);
       })
       .catch(() => undefined);
@@ -223,6 +232,14 @@ export default function App() {
             active={page === "privacy"}
             onClick={() => setPage("privacy")}
           />
+          {role === "ADMIN" && (
+            <Nav
+              icon={<Activity />}
+              label="Admin audit"
+              active={page === "admin"}
+              onClick={() => setPage("admin")}
+            />
+          )}
         </nav>
         <div className="sidebar-bottom">
           <div className="privacy">
@@ -256,7 +273,9 @@ export default function App() {
                         ? "MeetMind meeting room"
                         : page === "privacy"
                           ? "Privacy controls"
-                          : "Overview"}
+                          : page === "admin"
+                            ? "Admin audit log"
+                            : "Overview"}
             </strong>
           </div>
           <div className="top-actions">
@@ -374,6 +393,7 @@ export default function App() {
         {page === "privacy" && (
           <PrivacyPage onDeleted={() => window.location.reload()} />
         )}
+        {page === "admin" && role === "ADMIN" && <AdminPage />}
       </main>
     </div>
   );
@@ -1632,6 +1652,63 @@ function PrivacyPage({ onDeleted }: { onDeleted: () => void }) {
         </button>
       </section>
       {message && <p className="api-notice">{message}</p>}
+    </div>
+  );
+}
+
+function AdminPage() {
+  const [logs, setLogs] = useState<
+    Array<{
+      id: string;
+      user_id: string;
+      action: string;
+      resource_type: string;
+      resource_id: string;
+      created_at: string;
+    }>
+  >([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api
+      .adminAuditLogs()
+      .then((result) => setLogs(result.items))
+      .catch((e) =>
+        setError(e instanceof Error ? e.message : "Unable to load audit logs"),
+      );
+  }, []);
+  return (
+    <div className="page">
+      <section className="welcome">
+        <div>
+          <p className="eyebrow">ADMINISTRATION</p>
+          <h1>Audit every workspace change.</h1>
+          <p className="lead">
+            Persisted security events, scoped to administrator access.
+          </p>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">AUDIT LOG</p>
+            <h2>Recent events</h2>
+          </div>
+          <span className="count">{logs.length}</span>
+        </div>
+        {error && <p className="api-notice">{error}</p>}
+        {logs.map((log) => (
+          <div className="audit-row" key={log.id}>
+            <strong>{log.action}</strong>
+            <span>
+              {log.resource_type} {log.resource_id}
+            </span>
+            <small>{new Date(log.created_at).toLocaleString()}</small>
+          </div>
+        ))}
+        {!error && logs.length === 0 && (
+          <p className="muted">No audit events recorded yet.</p>
+        )}
+      </section>
     </div>
   );
 }

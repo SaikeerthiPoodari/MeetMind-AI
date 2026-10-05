@@ -177,3 +177,15 @@
   color: #c94d5b;
   border-color: #e8b5bc;
 }
+.audit-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 14px;
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+}
+.audit-row span,
+.audit-row small {
+  color: var(--muted);
+}

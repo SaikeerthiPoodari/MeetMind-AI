@@ -102,6 +102,19 @@ export const api = {
     token = "";
     localStorage.removeItem("meetmind_token");
   },
+  adminAuditLogs: () =>
+    request<{
+      items: Array<{
+        id: string;
+        user_id: string;
+        action: string;
+        resource_type: string;
+        resource_id: string;
+        metadata: Record<string, unknown>;
+        created_at: string;
+      }>;
+      total: number;
+    }>("/api/admin/audit-logs"),
   async bootstrap() {
     if (token) {
       await request("/api/me").catch(async () => {

@@ -2,6 +2,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
+from app.db import SessionLocal
+from app.models import User
 
 @pytest.fixture
 def client():
@@ -123,6 +125,24 @@ def test_privacy_export_and_account_deletion_are_authorized(client):
 
 def test_non_admin_cannot_read_audit_logs(client):
     assert client.get('/api/admin/audit-logs', headers=auth_headers(client)).status_code == 403
+
+def test_admin_can_read_persisted_audit_logs(client):
+    headers = auth_headers(client)
+    user_id = client.get('/api/me', headers=headers).json()['id']
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        user.role = 'ADMIN'
+        db.commit()
+        response = client.get('/api/admin/audit-logs', headers=headers)
+        assert response.status_code == 200
+        assert response.json()['total'] >= 1
+    finally:
+        user = db.get(User, user_id)
+        if user:
+            user.role = 'ORGANIZER'
+            db.commit()
+        db.close()
 
 def test_notifications_are_created_and_markable(client):
     headers = auth_headers(client)
