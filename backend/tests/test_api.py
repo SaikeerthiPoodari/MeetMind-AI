@@ -220,3 +220,12 @@ def test_follow_up_generator_persists_action_based_draft(client):
     assert 'Action items:' in generated.json()['body']
     history = client.get(f"/api/meetings/{demo['id']}/follow-up", headers=headers)
     assert history.status_code == 200 and history.json()['items'][0]['id'] == generated.json()['id']
+
+def test_speaker_and_timeline_intelligence_are_authorized(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    speaker_data = client.get(f"/api/meetings/{demo['id']}/speakers", headers=headers)
+    timeline_data = client.get(f"/api/meetings/{demo['id']}/timeline", headers=headers)
+    assert speaker_data.status_code == 200 and speaker_data.json()['items']
+    assert timeline_data.status_code == 200 and timeline_data.json()['items']
+    assert sum(item['share'] for item in speaker_data.json()['items']) <= 1.01

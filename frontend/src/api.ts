@@ -235,6 +235,28 @@ export const api = {
         topic: string;
       }>;
     }>(`/api/meetings/${meetingId}/transcript`),
+  speakers: (meetingId: string) =>
+    request<{
+      items: Array<{
+        speaker: string;
+        segments: number;
+        words: number;
+        share: number;
+        first_timestamp: string;
+        last_timestamp: string;
+      }>;
+      total_segments: number;
+    }>(`/api/meetings/${meetingId}/speakers`),
+  timeline: (meetingId: string) =>
+    request<{
+      items: Array<{
+        timestamp: string;
+        type: string;
+        label: string;
+        text: string;
+        speaker: string;
+      }>;
+    }>(`/api/meetings/${meetingId}/timeline`),
   decisions: (meetingId: string) =>
     request<{
       items: Array<{

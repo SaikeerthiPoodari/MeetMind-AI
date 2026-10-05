@@ -680,6 +680,12 @@ function Meeting({
   const [preflight, setPreflight] = useState<Awaited<
     ReturnType<typeof api.preflight>
   > | null>(null);
+  const [speakerStats, setSpeakerStats] = useState<Awaited<
+    ReturnType<typeof api.speakers>
+  > | null>(null);
+  const [timeline, setTimeline] = useState<Awaited<
+    ReturnType<typeof api.timeline>
+  > | null>(null);
   useEffect(() => {
     if (!meeting) return;
     if (!meeting.is_demo)
@@ -710,6 +716,14 @@ function Meeting({
       .preflight(meeting.id)
       .then(setPreflight)
       .catch(() => setPreflight(null));
+    api
+      .speakers(meeting.id)
+      .then(setSpeakerStats)
+      .catch(() => setSpeakerStats(null));
+    api
+      .timeline(meeting.id)
+      .then(setTimeline)
+      .catch(() => setTimeline(null));
   }, [meeting]);
   if (!meeting)
     return (
@@ -951,6 +965,54 @@ function Meeting({
               Suggested: {item}
             </p>
           ))}
+        </section>
+      )}
+      {tab === "Overview" && speakerStats && (
+        <section className="insight-grid speaker-timeline-grid">
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">SPEAKER INTELLIGENCE</p>
+                <h2>Who shaped the conversation?</h2>
+              </div>
+              <span className="count">{speakerStats.items.length}</span>
+            </div>
+            {speakerStats.items.map((item) => (
+              <div className="speaker-stat" key={item.speaker}>
+                <strong>{item.speaker}</strong>
+                <span>
+                  {item.segments} segments · {item.words} words
+                </span>
+                <i style={{ width: `${Math.max(3, item.share * 100)}%` }} />
+              </div>
+            ))}
+            {!speakerStats.items.length && (
+              <p className="muted">No speaker data available.</p>
+            )}
+          </section>
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">MEETING TIMELINE</p>
+                <h2>Signal over time</h2>
+              </div>
+              <span className="count">{timeline?.items.length ?? 0}</span>
+            </div>
+            <div className="timeline-list">
+              {timeline?.items.slice(0, 8).map((item, index) => (
+                <div
+                  className="timeline-item"
+                  key={`${item.timestamp}-${index}`}
+                >
+                  <time>{item.timestamp}</time>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <p>{item.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         </section>
       )}
       {tab === "Overview" && (

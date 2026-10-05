@@ -248,6 +248,26 @@ def transcript(meeting_id: str, user: User = Depends(current_user), db: Session 
     items = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == owned_id(db, meeting_id, user)).order_by(TranscriptSegment.timestamp)).all()
     return {"items": [{"id": x.id, "timestamp": x.timestamp, "speaker": x.speaker, "text": x.text, "topic": x.topic} for x in items]}
 
+@app.get("/api/meetings/{meeting_id}/speakers")
+def speakers(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting_id = owned_id(db, meeting_id, user)
+    segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id).order_by(TranscriptSegment.timestamp)).all()
+    totals = sum(len(item.text.split()) for item in segments) or 1
+    grouped: dict[str, dict] = {}
+    for item in segments:
+        entry = grouped.setdefault(item.speaker, {"speaker": item.speaker, "segments": 0, "words": 0, "first_timestamp": item.timestamp, "last_timestamp": item.timestamp})
+        entry["segments"] += 1; entry["words"] += len(item.text.split()); entry["last_timestamp"] = item.timestamp
+    items = sorted((dict(value, share=round(value["words"] / totals, 3)) for value in grouped.values()), key=lambda value: value["words"], reverse=True)
+    return {"items": items, "total_segments": len(segments)}
+
+@app.get("/api/meetings/{meeting_id}/timeline")
+def timeline(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting_id = owned_id(db, meeting_id, user)
+    events = [{"timestamp": item.timestamp, "type": "transcript", "label": item.topic, "text": item.text, "speaker": item.speaker} for item in db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id)).all()]
+    events += [{"timestamp": item.timestamp, "type": "decision", "label": "Decision", "text": item.decision, "speaker": item.speaker} for item in db.scalars(select(Decision).where(Decision.meeting_id == meeting_id)).all()]
+    events += [{"timestamp": item.timestamp, "type": "risk", "label": f"Risk · {item.severity}", "text": item.risk, "speaker": ""} for item in db.scalars(select(Risk).where(Risk.meeting_id == meeting_id)).all()]
+    return {"items": sorted(events, key=lambda item: item["timestamp"])}
+
 @app.get("/api/meetings/{meeting_id}/decisions")
 def decisions(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = db.scalars(select(Decision).where(Decision.meeting_id == owned_id(db, meeting_id, user))).all()
