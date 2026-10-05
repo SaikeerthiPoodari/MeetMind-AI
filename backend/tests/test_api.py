@@ -44,3 +44,11 @@ def test_register_create_and_update_action(client):
 
 def test_protected_routes_reject_anonymous_access(client):
     assert client.get('/api/meetings').status_code == 401
+
+def test_upload_stores_recording_metadata(client):
+    headers = auth_headers(client)
+    meeting_id = client.get('/api/meetings', headers=headers).json()['items'][0]['id']
+    response = client.post(f'/api/meetings/{meeting_id}/upload', headers=headers, files={'file': ('notes.txt', b'Project Apollo transcript', 'text/plain')})
+    assert response.status_code == 200
+    assert response.json()['status'] == 'uploaded'
+    assert response.json()['recording_id']

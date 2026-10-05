@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from uuid import uuid4
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -41,3 +41,14 @@ class ActionItem(Base):
     timestamp: Mapped[str] = mapped_column(String(20), default="")
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     meeting: Mapped[Meeting] = relationship(back_populates="actions")
+
+class Recording(Base):
+    __tablename__ = "recordings"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(120))
+    storage_path: Mapped[str] = mapped_column(String(500))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="uploaded")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

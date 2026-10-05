@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, Meeting, User
+from .models import ActionItem, Meeting, Recording, User
+from .storage import store_bytes
 
 app = FastAPI(title="MeetMind AI API", version="1.1.0", description="Evidence-based meeting intelligence API")
 app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -91,7 +92,10 @@ async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Dep
     if file.content_type not in allowed: raise HTTPException(415, "Unsupported meeting file type")
     content = await file.read()
     if len(content) > 250 * 1024 * 1024: raise HTTPException(413, "Meeting file exceeds the 250 MB limit")
-    return {"filename": file.filename, "bytes": len(content), "status": "uploaded", "message": "Storage/transcription provider is not configured; file validation succeeded."}
+    storage_path = store_bytes(meeting_id, file.filename or "meeting-upload", content)
+    recording = Recording(meeting_id=meeting_id, filename=file.filename or "meeting-upload", content_type=file.content_type or "application/octet-stream", storage_path=storage_path, size_bytes=len(content))
+    db.add(recording); db.commit()
+    return {"recording_id": recording.id, "filename": recording.filename, "bytes": len(content), "status": "uploaded", "message": "Recording stored. Transcription provider is not configured."}
 
 @app.post("/api/meetings/{meeting_id}/process")
 def process(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
