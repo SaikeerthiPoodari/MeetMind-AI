@@ -11,6 +11,8 @@ depends_on = None
 def upgrade() -> None:
     UserPreference = models.UserPreference
     UserPreference.__table__.create(bind=op.get_bind(), checkfirst=True)
+    models.Notification.__table__.create(bind=op.get_bind(), checkfirst=True)
 
 def downgrade() -> None:
+    models.Notification.__table__.drop(bind=op.get_bind(), checkfirst=True)
     models.UserPreference.__table__.drop(bind=op.get_bind(), checkfirst=True)

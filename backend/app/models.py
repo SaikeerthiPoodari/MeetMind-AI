@@ -118,3 +118,13 @@ class UserPreference(Base):
     language: Mapped[str] = mapped_column(String(8), default="en")
     timezone: Mapped[str] = mapped_column(String(80), default="UTC")
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text, default="")
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

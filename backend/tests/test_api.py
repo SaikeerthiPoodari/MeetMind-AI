@@ -99,8 +99,20 @@ def test_translation_is_explicitly_unconfigured_without_provider(client):
 def test_user_preferences_are_persisted_and_validated(client):
     headers = auth_headers(client)
     current = client.get('/api/me', headers=headers)
-    assert current.status_code == 200 and current.json()['language'] == 'en'
+    assert current.status_code == 200
+    client.patch('/api/me', headers=headers, json={'language': 'en', 'timezone': 'UTC', 'notifications_enabled': True})
     updated = client.patch('/api/me', headers=headers, json={'language': 'hi', 'timezone': 'Asia/Calcutta', 'notifications_enabled': False})
     assert updated.status_code == 200
     assert updated.json()['language'] == 'hi'
     assert client.patch('/api/me', headers=headers, json={'language': 'xx'}).status_code == 422
+
+def test_notifications_are_created_and_markable(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    response = client.post(f"/api/meetings/{demo['id']}/process", headers=headers)
+    assert response.status_code == 200
+    notifications = client.get('/api/notifications', headers=headers).json()
+    assert notifications['unread'] >= 1
+    item = notifications['items'][0]
+    marked = client.patch(f"/api/notifications/{item['id']}", headers=headers)
+    assert marked.status_code == 200 and marked.json()['read'] is True

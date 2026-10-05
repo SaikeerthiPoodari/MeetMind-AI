@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSession, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
+from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSession, Notification, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
 from .storage import store_bytes
 from .transcription.parser import parse_text
 from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
@@ -221,7 +221,7 @@ async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Dep
 
 @app.post("/api/meetings/{meeting_id}/process")
 def process(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    meeting = user_meeting(db, meeting_id, user); meeting.status = "processing"; db.commit()
+    meeting = user_meeting(db, meeting_id, user); meeting.status = "processing"; db.add(Notification(user_id=user.id, kind="processing", title="Meeting processing started", body=f"{meeting.title} is being prepared for intelligence.")); db.commit()
     return {"meeting_id": meeting_id, "status": "processing", "mode": os.getenv("AI_PROVIDER", "demo"), "message": "Provider pipeline is ready; demo meetings can be opened without external AI credentials."}
 
 @app.post("/api/meetings/{meeting_id}/join")
@@ -274,4 +274,16 @@ def update_action(action_id: str, payload: ActionUpdate, user: User = Depends(cu
     action = db.scalar(select(ActionItem).join(Meeting).where(ActionItem.id == action_id, Meeting.owner_id == user.id))
     if not action: raise HTTPException(404, "Action not found")
     for key, value in payload.model_dump(exclude_none=True).items(): setattr(action, key, value)
+    if payload.status: db.add(Notification(user_id=user.id, kind="action", title="Action updated", body=f"{action.task} is now {payload.status}."))
     db.commit(); db.refresh(action); return action_json(action)
+
+@app.get("/api/notifications")
+def notifications(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    items = db.scalars(select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc())).all()
+    return {"items": [{"id": x.id, "kind": x.kind, "title": x.title, "body": x.body, "read": x.read, "created_at": x.created_at.isoformat()} for x in items], "unread": sum(not x.read for x in items)}
+
+@app.patch("/api/notifications/{notification_id}")
+def mark_notification(notification_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    item = db.scalar(select(Notification).where(Notification.id == notification_id, Notification.user_id == user.id))
+    if not item: raise HTTPException(404, "Notification not found")
+    item.read = True; db.commit(); return {"id": item.id, "read": item.read}
