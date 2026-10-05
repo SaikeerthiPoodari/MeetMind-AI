@@ -17,7 +17,7 @@ from .db import get_db, init_db
 from .models import ActionItem, AuditLog, Decision, FollowUpDraft, Meeting, MeetingChatMessage, MeetingQuestion, MeetingSession, Notification, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
 from .storage import store_bytes
 from .transcription.parser import parse_text
-from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
+from .translation.provider import SUPPORTED_LANGUAGES, detect_language, get_translation_provider
 from .transcription.provider import get_transcription_provider
 
 @asynccontextmanager
@@ -338,7 +338,14 @@ def translate_meeting(meeting_id: str, payload: TranslationRequest, user: User =
     provider = get_translation_provider()
     if not provider.configured: raise HTTPException(503, "Translation provider not configured. Set TRANSLATION_PROVIDER and its credentials before requesting translated output.")
     source = meeting.summary if payload.scope == "summary" else "\n".join(x.text for x in db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all())
-    return {"meeting_id": meeting.id, "source_language": "und", "target_language": payload.target_language, "scope": payload.scope, "translated_text": provider.translate(source, payload.target_language)}
+    return {"meeting_id": meeting.id, "source_language": detect_language(source), "target_language": payload.target_language, "scope": payload.scope, "translated_text": provider.translate(source, payload.target_language)}
+
+@app.get("/api/meetings/{meeting_id}/language")
+def meeting_language(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    transcript = "\n".join(item.text for item in db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all())
+    source = transcript or meeting.summary
+    return {"meeting_id": meeting.id, "language": detect_language(source), "confidence": 0.8 if source else 0.0, "mode": "script-detection"}
 
 @app.get("/api/search")
 def search(q: str = Query(min_length=2, max_length=200), user: User = Depends(current_user), db: Session = Depends(get_db)):

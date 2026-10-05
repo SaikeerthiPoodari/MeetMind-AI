@@ -629,6 +629,7 @@ function Meeting({
   const [targetLanguage, setTargetLanguage] = useState("hi");
   const [translation, setTranslation] = useState("");
   const [translationError, setTranslationError] = useState("");
+  const [detectedLanguage, setDetectedLanguage] = useState("und");
   const [followUp, setFollowUp] = useState<{
     subject: string;
     body: string;
@@ -724,6 +725,10 @@ function Meeting({
       .timeline(meeting.id)
       .then(setTimeline)
       .catch(() => setTimeline(null));
+    api
+      .language(meeting.id)
+      .then((result) => setDetectedLanguage(result.language))
+      .catch(() => setDetectedLanguage("und"));
   }, [meeting]);
   if (!meeting)
     return (
@@ -770,9 +775,9 @@ function Meeting({
   const translate = async () => {
     try {
       setTranslationError("");
-      setTranslation(
-        (await api.translate(meeting.id, targetLanguage)).translated_text,
-      );
+      const result = await api.translate(meeting.id, targetLanguage);
+      setDetectedLanguage(result.source_language);
+      setTranslation(result.translated_text);
     } catch (e) {
       setTranslationError(
         e instanceof Error ? e.message : "Translation failed",
@@ -1022,7 +1027,9 @@ function Meeting({
               <p className="eyebrow">MULTILINGUAL INTELLIGENCE</p>
               <h2>Translate summary</h2>
             </div>
-            <span className="muted">Original content is preserved</span>
+            <span className="muted">
+              Detected: {detectedLanguage} · Original content is preserved
+            </span>
           </div>
           <select
             value={targetLanguage}

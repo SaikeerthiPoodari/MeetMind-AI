@@ -229,3 +229,11 @@ def test_speaker_and_timeline_intelligence_are_authorized(client):
     assert speaker_data.status_code == 200 and speaker_data.json()['items']
     assert timeline_data.status_code == 200 and timeline_data.json()['items']
     assert sum(item['share'] for item in speaker_data.json()['items']) <= 1.01
+
+def test_meeting_language_detection_reports_supported_script(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    detected = client.get(f"/api/meetings/{demo['id']}/language", headers=headers)
+    assert detected.status_code == 200
+    assert detected.json()['language'] == 'en'
+    assert detected.json()['mode'] == 'script-detection'

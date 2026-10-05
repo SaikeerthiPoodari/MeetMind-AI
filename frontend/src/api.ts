@@ -406,12 +406,17 @@ export const api = {
     targetLanguage: string,
     scope: "summary" | "transcript" = "summary",
   ) =>
-    request<{ translated_text: string; target_language: string }>(
-      `/api/meetings/${meetingId}/translate`,
-      {
-        method: "POST",
-        body: JSON.stringify({ target_language: targetLanguage, scope }),
-      },
+    request<{
+      translated_text: string;
+      target_language: string;
+      source_language: string;
+    }>(`/api/meetings/${meetingId}/translate`, {
+      method: "POST",
+      body: JSON.stringify({ target_language: targetLanguage, scope }),
+    }),
+  language: (meetingId: string) =>
+    request<{ language: string; confidence: number; mode: string }>(
+      `/api/meetings/${meetingId}/language`,
     ),
   compare: (firstId: string, secondId: string) =>
     request(
