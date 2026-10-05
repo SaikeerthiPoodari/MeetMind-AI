@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSession, OpenQuestion, Recording, Risk, TranscriptSegment, User
+from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSession, OpenQuestion, Recording, Risk, TranscriptSegment, User, UserPreference
 from .storage import store_bytes
 from .transcription.parser import parse_text
 from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
@@ -83,6 +83,10 @@ class ActionUpdate(BaseModel):
 class TranslationRequest(BaseModel):
     target_language: str = Field(min_length=2, max_length=5)
     scope: str = Field(default="summary", pattern="^(summary|transcript)$")
+class PreferenceUpdate(BaseModel):
+    language: str = Field(default="en", min_length=2, max_length=8)
+    timezone: str = Field(default="UTC", min_length=1, max_length=80)
+    notifications_enabled: bool = True
 
 def user_meeting(db: Session, meeting_id: str, user: User) -> Meeting:
     statement = select(Meeting).where(Meeting.owner_id == user.id, Meeting.is_demo.is_(True)) if meeting_id == "apollo-demo" else select(Meeting).where(Meeting.id == meeting_id, Meeting.owner_id == user.id)
@@ -117,6 +121,18 @@ def login(credentials: Credentials, db: Session = Depends(get_db)):
 
 @app.post("/api/auth/logout")
 def logout(_: User = Depends(current_user)): return {"status": "signed_out"}
+
+@app.get("/api/me")
+def profile(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    preferences = db.get(UserPreference, user.id); return {"id": user.id, "email": user.email, "role": user.role, "language": preferences.language if preferences else "en", "timezone": preferences.timezone if preferences else "UTC", "notifications_enabled": preferences.notifications_enabled if preferences else True}
+
+@app.patch("/api/me")
+def update_profile(payload: PreferenceUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if payload.language not in SUPPORTED_LANGUAGES: raise HTTPException(422, "Unsupported language")
+    preferences = db.get(UserPreference, user.id)
+    if not preferences: preferences = UserPreference(user_id=user.id); db.add(preferences)
+    preferences.language = payload.language; preferences.timezone = payload.timezone; preferences.notifications_enabled = payload.notifications_enabled; db.commit(); db.refresh(preferences)
+    return {"id": user.id, "email": user.email, "role": user.role, "language": preferences.language, "timezone": preferences.timezone, "notifications_enabled": preferences.notifications_enabled}
 
 @app.get("/api/meetings")
 def list_meetings(user: User = Depends(current_user), db: Session = Depends(get_db)):

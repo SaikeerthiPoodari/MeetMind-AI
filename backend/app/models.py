@@ -111,3 +111,10 @@ class MeetingQuestion(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     evidence_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    timezone: Mapped[str] = mapped_column(String(80), default="UTC")
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)

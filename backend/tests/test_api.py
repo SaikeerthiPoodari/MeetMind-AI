@@ -95,3 +95,12 @@ def test_translation_is_explicitly_unconfigured_without_provider(client):
     response = client.post(f"/api/meetings/{demo['id']}/translate", headers=headers, json={'target_language': 'hi', 'scope': 'summary'})
     assert response.status_code == 503
     assert 'not configured' in response.json()['detail'].lower()
+
+def test_user_preferences_are_persisted_and_validated(client):
+    headers = auth_headers(client)
+    current = client.get('/api/me', headers=headers)
+    assert current.status_code == 200 and current.json()['language'] == 'en'
+    updated = client.patch('/api/me', headers=headers, json={'language': 'hi', 'timezone': 'Asia/Calcutta', 'notifications_enabled': False})
+    assert updated.status_code == 200
+    assert updated.json()['language'] == 'hi'
+    assert client.patch('/api/me', headers=headers, json={'language': 'xx'}).status_code == 422

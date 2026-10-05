@@ -27,4 +27,6 @@ export const api = {
   start: (meetingId: string) => request(`/api/meetings/${meetingId}/start`, { method: 'POST' }),
   end: (meetingId: string) => request(`/api/meetings/${meetingId}/end`, { method: 'POST' }),
   transcript: (meetingId: string) => request<{ items: Array<{ id: string; timestamp: string; speaker: string; text: string; topic: string }> }>(`/api/meetings/${meetingId}/transcript`),
+  profile: () => request<{ id: string; email: string; role: string; language: string; timezone: string; notifications_enabled: boolean }>('/api/me'),
+  updateProfile: (payload: { language: string; timezone: string; notifications_enabled: boolean }) => request<{ language: string; timezone: string; notifications_enabled: boolean }>('/api/me', { method: 'PATCH', body: JSON.stringify(payload) }),
 };
