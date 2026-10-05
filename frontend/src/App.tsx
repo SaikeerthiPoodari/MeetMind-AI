@@ -149,6 +149,14 @@ export default function App() {
       setPage("meeting");
     }
   };
+  const openMeetingId = async (meetingId: string) => {
+    try {
+      const meeting = await api.getMeeting(meetingId);
+      openMeeting(meeting);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to open meeting");
+    }
+  };
   return (
     <div className={dark ? "app dark" : "app"}>
       <aside className={menu ? "sidebar open" : "sidebar"}>
@@ -323,7 +331,7 @@ export default function App() {
             }}
           />
         )}
-        {page === "search" && <SearchPage onOpen={openMeeting} />}
+        {page === "search" && <SearchPage onOpen={openMeetingId} />}
         {page === "room" && (
           <Room
             onBack={() => setPage("dashboard")}
@@ -575,10 +583,7 @@ function Meeting({
   const ask = async () => {
     try {
       setAnswer(
-        await api.ask(
-          "apollo-demo",
-          question || "What were the key decisions?",
-        ),
+        await api.ask(meeting.id, question || "What were the key decisions?"),
       );
     } catch (e) {
       setAnswer({
@@ -1297,10 +1302,16 @@ function NewMeeting({
     </div>
   );
 }
-function SearchPage({ onOpen }: { onOpen: (m?: ApiMeeting | null) => void }) {
+function SearchPage({ onOpen }: { onOpen: (meetingId: string) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<
-    Array<{ title: string; matched: string; timestamp?: string; type: string }>
+    Array<{
+      meeting_id: string;
+      title: string;
+      matched: string;
+      timestamp?: string;
+      type: string;
+    }>
   >([]);
   const search = async () => {
     if (query.length < 2) return;
@@ -1334,7 +1345,11 @@ function SearchPage({ onOpen }: { onOpen: (m?: ApiMeeting | null) => void }) {
           </button>
         </div>
         {results.map((r, i) => (
-          <button className="meeting-row" key={i} onClick={() => onOpen()}>
+          <button
+            className="meeting-row"
+            key={i}
+            onClick={() => onOpen(r.meeting_id)}
+          >
             <div className="meeting-icon violet">
               <Search size={18} />
             </div>
