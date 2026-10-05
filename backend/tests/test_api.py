@@ -68,3 +68,13 @@ def test_search_and_exports_are_authorized(client):
     text_export = client.get(f"/api/meetings/{demo['id']}/export?format=txt", headers=headers)
     assert text_export.status_code == 200
     assert 'TRANSCRIPT' in text_export.text
+
+def test_meeting_lifecycle_persists_session(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    joined = client.post(f"/api/meetings/{demo['id']}/join", headers=headers)
+    assert joined.status_code == 200 and joined.json()['status'] == 'joined'
+    started = client.post(f"/api/meetings/{demo['id']}/start", headers=headers)
+    assert started.json()['status'] == 'live'
+    ended = client.post(f"/api/meetings/{demo['id']}/end", headers=headers)
+    assert ended.json()['status'] == 'processing'

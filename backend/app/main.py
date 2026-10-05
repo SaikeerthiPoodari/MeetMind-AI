@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, Decision, Meeting, OpenQuestion, Recording, Risk, TranscriptSegment, User
+from .models import ActionItem, Decision, Meeting, MeetingSession, OpenQuestion, Recording, Risk, TranscriptSegment, User
 from .storage import store_bytes
 from .transcription.parser import parse_text
 
@@ -171,6 +171,22 @@ async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Dep
 def process(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = user_meeting(db, meeting_id, user); meeting.status = "processing"; db.commit()
     return {"meeting_id": meeting_id, "status": "processing", "mode": os.getenv("AI_PROVIDER", "demo"), "message": "Provider pipeline is ready; demo meetings can be opened without external AI credentials."}
+
+@app.post("/api/meetings/{meeting_id}/join")
+def join_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user)
+    session = MeetingSession(meeting_id=meeting.id, user_id=user.id, status="joined"); db.add(session); db.commit(); db.refresh(session)
+    return {"session_id": session.id, "meeting_id": meeting.id, "status": session.status, "joined_at": session.joined_at.isoformat()}
+
+@app.post("/api/meetings/{meeting_id}/start")
+def start_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user); meeting.status = "live"; db.commit()
+    return {"meeting_id": meeting.id, "status": meeting.status}
+
+@app.post("/api/meetings/{meeting_id}/end")
+def end_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user); meeting.status = "processing"; db.commit()
+    return {"meeting_id": meeting.id, "status": meeting.status, "next": "process"}
 
 @app.post("/api/meetings/{meeting_id}/ask")
 def ask(meeting_id: str, payload: dict, user: User = Depends(current_user), db: Session = Depends(get_db)):

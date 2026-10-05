@@ -91,3 +91,12 @@ class OpenQuestion(Base):
     speaker: Mapped[str] = mapped_column(String(120))
     timestamp: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(30), default="OPEN")
+
+class MeetingSession(Base):
+    __tablename__ = "meeting_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="joined")
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
