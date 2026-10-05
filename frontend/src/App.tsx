@@ -16,6 +16,7 @@ import {
   Mic,
   MicOff,
   Mic2,
+  MonitorUp,
   Moon,
   Plus,
   Search,
@@ -924,6 +925,8 @@ function Room({
   const [elapsed, setElapsed] = useState(0);
   const [message, setMessage] = useState("");
   const streamRef = useRef<MediaStream | null>(null);
+  const screenRef = useRef<MediaStream | null>(null);
+  const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const meetingRef = useRef<ApiMeeting | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -958,6 +961,7 @@ function Room({
         video: true,
       });
       streamRef.current = stream;
+      cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => undefined);
@@ -1018,7 +1022,10 @@ function Room({
       );
     } finally {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      screenRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      screenRef.current = null;
+      cameraTrackRef.current = null;
       recorderRef.current = null;
       meetingRef.current = null;
       setBusy(false);
@@ -1038,6 +1045,42 @@ function Room({
       ?.getVideoTracks()
       .forEach((track) => (track.enabled = next));
     setCameraOn(next);
+  };
+  const toggleScreen = async () => {
+    if (!streamRef.current || !navigator.mediaDevices?.getDisplayMedia) {
+      setMessage("Screen sharing is not supported by this browser.");
+      return;
+    }
+    if (screenRef.current) {
+      const screenTrack = streamRef.current.getVideoTracks()[0];
+      if (screenTrack) streamRef.current.removeTrack(screenTrack);
+      if (cameraTrackRef.current)
+        streamRef.current.addTrack(cameraTrackRef.current);
+      screenRef.current.getTracks().forEach((track) => track.stop());
+      screenRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = streamRef.current;
+      setMessage("Camera preview restored.");
+      return;
+    }
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+      });
+      const screenTrack = display.getVideoTracks()[0];
+      const cameraTrack = streamRef.current.getVideoTracks()[0];
+      if (cameraTrack) streamRef.current.removeTrack(cameraTrack);
+      streamRef.current.addTrack(screenTrack);
+      screenRef.current = display;
+      if (videoRef.current) videoRef.current.srcObject = display;
+      screenTrack.onended = () => toggleScreen();
+      setMessage(
+        "Screen sharing is being recorded. Stop sharing to return to camera.",
+      );
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : "Screen sharing was cancelled.",
+      );
+    }
   };
   const time = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
 
@@ -1118,6 +1161,13 @@ function Room({
               title={cameraOn ? "Turn camera off" : "Turn camera on"}
             >
               {cameraOn ? <Camera /> : <CameraOff />}
+            </button>
+            <button
+              className="icon-btn"
+              onClick={toggleScreen}
+              title={screenRef.current ? "Stop screen sharing" : "Share screen"}
+            >
+              <MonitorUp />
             </button>
             <button
               className="primary stop-recording"
