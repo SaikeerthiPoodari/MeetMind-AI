@@ -1,5 +1,6 @@
 import os
 import json
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -15,12 +16,31 @@ from .transcription.parser import parse_text
 from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
 from .transcription.provider import get_transcription_provider
 
-app = FastAPI(title="MeetMind AI API", version="1.1.0", description="Evidence-based meeting intelligence API")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    db = next(get_db())
+    try:
+        demo = db.scalar(select(Meeting).where(Meeting.is_demo.is_(True)))
+        if not demo:
+            user = db.scalar(select(User).where(User.email == "demo@meetmind.ai"))
+            if not user:
+                user = User(email="demo@meetmind.ai", password_hash=hash_password("DemoPass123!"), role="ORGANIZER"); db.add(user); db.flush()
+            demo = Meeting(owner_id=user.id, title="Project Apollo · Sprint Planning", description="Demo meeting for product walkthroughs.", status="analyzed", is_demo=True, summary="The Apollo team aligned on a Friday beta deployment, with load testing and security approval as the final gates. Authentication ownership is clear, while data residency remains unresolved.")
+            db.add(demo); db.flush()
+            rows = [("Finalize OAuth callback handling","Priya Nair","Tomorrow","High","In progress","09:38"),("Publish the load-test report","Marcus Taylor","Oct 08","Medium","Pending","18:42"),("Schedule security review","Elena Rossi","Oct 10","High","Blocked","23:17"),("Update onboarding checklist","Jordan Davis","Oct 12","Low","Pending","28:15")]
+            for task, owner, deadline, priority, state, timestamp in rows: db.add(ActionItem(meeting_id=demo.id, owner_id=user.id, task=task, deadline=deadline, priority=priority, status=state, timestamp=timestamp, confidence=.9))
+            segments = [("00:00","Maya Chen","Welcome everyone. Today we are aligning the Apollo release plan and removing the last blockers for beta.","Opening"),("04:12","Marcus Taylor","The API gateway is stable in staging. The remaining work is observability and the payment retry path.","Engineering update"),("09:38","Priya Nair","I can own the authentication issue. I will have the callback handling fixed by tomorrow afternoon.","Commitment"),("12:41","Priya Nair","We should use PostgreSQL for reporting because the audit trail needs relational queries and predictable backups.","Technical decision"),("18:42","Marcus Taylor","The load test is the gate for beta. I will publish the report before Thursday so we can review it together.","Release readiness"),("23:17","Elena Rossi","We cannot deploy Friday without a security review. I will schedule it, but the compliance approval is still missing.","Risk"),("28:15","Maya Chen","Decision: beta deployment is Friday, provided the load test and security review are green. Let us reconvene Wednesday.","Decision"),("31:04","Maya Chen","Open question: do we support regional data residency in the first beta, or is that a post-beta commitment?","Open question")]
+            for timestamp, speaker, text, topic in segments: db.add(TranscriptSegment(meeting_id=demo.id, timestamp=timestamp, speaker=speaker, text=text, topic=topic))
+            db.add(Decision(meeting_id=demo.id, decision="Use PostgreSQL for reporting", speaker="Priya Nair", timestamp="12:41", evidence=segments[3][2], confidence=.94)); db.add(Decision(meeting_id=demo.id, decision="Beta deployment is Friday, conditional on gates", speaker="Maya Chen", timestamp="28:15", evidence=segments[6][2], confidence=.91)); db.add(Decision(meeting_id=demo.id, decision="Hold a readiness review Wednesday", speaker="Maya Chen", timestamp="28:15", evidence="Let us reconvene Wednesday.", confidence=.88))
+            db.add(Risk(meeting_id=demo.id, risk="Security approval pending", severity="High", timestamp="23:17", recommendation="Schedule the review and confirm the compliance owner.")); db.add(Risk(meeting_id=demo.id, risk="Data residency unresolved", severity="Medium", timestamp="31:04", recommendation="Add regional residency to the beta scope decision.")); db.add(OpenQuestion(meeting_id=demo.id, question="Do we support regional data residency in the first beta?", speaker="Maya Chen", timestamp="31:04")); db.commit()
+    finally: db.close()
+    yield
+
+app = FastAPI(title="MeetMind AI API", version="1.1.0", description="Evidence-based meeting intelligence API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-@app.on_event("startup")
-def startup():
-    init_db()
+def startup_legacy_seed():
     db = next(get_db())
     try:
         demo = db.scalar(select(Meeting).where(Meeting.is_demo.is_(True)))
