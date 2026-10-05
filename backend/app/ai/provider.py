@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import os
 import json
+import re
 from typing import Protocol
 
 class AIProvider(Protocol):
@@ -14,7 +15,26 @@ class DemoAIProvider:
     name: str = "demo"
     configured: bool = True
     def analyze(self, transcript: str) -> dict:
-        return {"summary": "Demo analysis is grounded in the supplied transcript.", "decisions": [], "actions": [], "risks": [], "evidence_required": True}
+        segments = []
+        for line in transcript.splitlines():
+            match = re.match(r"\[(?P<timestamp>[^]]+)\]\s*(?P<speaker>[^:]+):\s*(?P<text>.+)", line.strip())
+            if match: segments.append(match.groupdict())
+        decisions, actions, risks, questions = [], [], [], []
+        for item in segments:
+            text, lower = item["text"].strip(), item["text"].lower()
+            evidence = text
+            base = {"speaker": item["speaker"].strip(), "timestamp": item["timestamp"], "evidence": evidence}
+            if "decision:" in lower or lower.startswith("we should ") or lower.startswith("use "):
+                decisions.append({"decision": text.removeprefix("Decision: ").strip(), **base, "confidence": 0.82})
+            if "i will " in lower or "i can own " in lower:
+                task = text.split("I will ", 1)[-1].split("I can own ", 1)[-1].strip().rstrip(".")
+                actions.append({"task": task, "owner": base["speaker"], "deadline": "Not specified in the meeting", "priority": "Medium", "status": "Pending", **base, "confidence": 0.78})
+            if any(term in lower for term in ("cannot", "pending", "missing", "risk")):
+                risks.append({"risk": text, "severity": "High" if "cannot" in lower or "missing" in lower else "Medium", "recommendation": "Confirm an owner and next step.", **base})
+            if "?" in text or lower.startswith("open question"):
+                questions.append({"question": text, **base})
+        summary = " ".join(item["text"] for item in segments[:2]) or "No transcript evidence was supplied."
+        return {"summary": summary, "decisions": decisions, "actions": actions, "risks": risks, "questions": questions, "evidence_required": True}
     def answer(self, question: str, transcript: str) -> dict:
         return {"answer": "I couldn't find sufficient evidence in this meeting.", "confidence": 0.2, "evidence": []}
 

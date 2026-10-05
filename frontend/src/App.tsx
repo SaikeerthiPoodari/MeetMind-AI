@@ -1619,7 +1619,9 @@ function NewMeeting({
     try {
       const meeting = await api.createMeeting(title);
       await api.upload(meeting.id, file);
-      onDone(meeting);
+      setMessage("Transcript stored. Running structured intelligence...");
+      await api.process(meeting.id);
+      onDone(await api.getMeeting(meeting.id));
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Unable to create meeting.");
     } finally {

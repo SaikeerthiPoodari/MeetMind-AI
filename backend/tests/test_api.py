@@ -67,6 +67,18 @@ def test_upload_stores_recording_metadata(client):
     assert response.json()['recording_id']
     assert response.json()['segments_created'] == 1
 
+def test_processing_persists_structured_intelligence_for_uploaded_transcript(client):
+    email = f"pipeline-{uuid4()}@example.com"
+    registration = client.post('/api/auth/register', json={'email': email, 'password': 'StrongPass123!'})
+    headers = {'Authorization': f"Bearer {registration.json()['access_token']}"}
+    meeting = client.post('/api/meetings', headers=headers, json={'title': 'Pipeline test'}).json()
+    uploaded = client.post(f"/api/meetings/{meeting['id']}/upload", headers=headers, files={'file': ('notes.txt', b'00:00 Decision: Use PostgreSQL for reporting.\n00:01 I will publish the report.\n00:02 The security approval is pending.\n00:03 Do we need regional residency?', 'text/plain')})
+    assert uploaded.status_code == 200 and uploaded.json()['segments_created'] == 4
+    processed = client.post(f"/api/meetings/{meeting['id']}/process", headers=headers)
+    assert processed.status_code == 200 and processed.json()['status'] == 'analyzed'
+    assert client.get(f"/api/meetings/{meeting['id']}/decisions", headers=headers).json()['items']
+    assert client.get(f"/api/meetings/{meeting['id']}/questions", headers=headers).json()['items']
+
 def test_search_and_exports_are_authorized(client):
     headers = auth_headers(client)
     demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])

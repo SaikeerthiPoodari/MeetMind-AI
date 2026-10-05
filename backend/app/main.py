@@ -383,8 +383,37 @@ async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Dep
 
 @app.post("/api/meetings/{meeting_id}/process")
 def process(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    meeting = user_meeting(db, meeting_id, user); meeting.status = "processing"; db.add(Notification(user_id=user.id, kind="processing", title="Meeting processing started", body=f"{meeting.title} is being prepared for intelligence.")); db.commit()
-    return {"meeting_id": meeting_id, "status": "processing", "mode": os.getenv("AI_PROVIDER", "demo"), "message": "Provider pipeline is ready; demo meetings can be opened without external AI credentials."}
+    meeting = user_meeting(db, meeting_id, user)
+    provider = get_ai_provider()
+    if not provider.configured: raise HTTPException(503, "AI provider not configured. Set AI_PROVIDER and credentials before processing a meeting.")
+    segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id).order_by(TranscriptSegment.timestamp)).all()
+    if not segments: raise HTTPException(422, "A persisted transcript is required before processing this meeting.")
+    meeting.status = "processing"
+    db.add(Notification(user_id=user.id, kind="processing", title="Meeting processing started", body=f"{meeting.title} is being prepared for intelligence."))
+    db.commit()
+    try:
+        transcript_text = "\n".join(f"[{item.timestamp}] {item.speaker}: {item.text}" for item in segments)
+        result = provider.analyze(transcript_text)
+        if not isinstance(result, dict): raise ValueError("AI provider returned an invalid object")
+        meeting.summary = str(result.get("summary") or "Not specified in the meeting.")
+        if not db.scalar(select(Decision).where(Decision.meeting_id == meeting.id)):
+            for item in result.get("decisions", []) or []:
+                if item.get("decision"): db.add(Decision(meeting_id=meeting.id, decision=str(item["decision"]), speaker=str(item.get("speaker", "Unknown speaker")), timestamp=str(item.get("timestamp", "")), evidence=str(item.get("evidence", "")), confidence=float(item.get("confidence", 0.0))))
+        if not db.scalar(select(ActionItem).where(ActionItem.meeting_id == meeting.id)):
+            for item in result.get("actions", []) or []:
+                if item.get("task"): db.add(ActionItem(meeting_id=meeting.id, owner_id=user.id, task=str(item["task"]), deadline=str(item.get("deadline", "Not specified in the meeting")), priority=str(item.get("priority", "Medium")), status=str(item.get("status", "Pending")), timestamp=str(item.get("timestamp", "")), evidence=str(item.get("evidence", "")), confidence=float(item.get("confidence", 0.0))))
+        if not db.scalar(select(Risk).where(Risk.meeting_id == meeting.id)):
+            for item in result.get("risks", []) or []:
+                if item.get("risk"): db.add(Risk(meeting_id=meeting.id, risk=str(item["risk"]), severity=str(item.get("severity", "Medium")), timestamp=str(item.get("timestamp", "")), recommendation=str(item.get("recommendation", "Confirm an owner and next step."))))
+        if not db.scalar(select(OpenQuestion).where(OpenQuestion.meeting_id == meeting.id)):
+            for item in result.get("questions", []) or []:
+                if item.get("question"): db.add(OpenQuestion(meeting_id=meeting.id, question=str(item["question"]), speaker=str(item.get("speaker", "Unknown speaker")), timestamp=str(item.get("timestamp", ""))))
+        meeting.status = "analyzed"
+        db.add(Notification(user_id=user.id, kind="processing", title="Meeting processing completed", body=f"{meeting.title} intelligence is ready.")); audit(db, user, "meeting.processed", "meeting", meeting.id, {"provider": provider.name}); db.commit()
+    except Exception as exc:
+        db.rollback(); meeting = user_meeting(db, meeting_id, user); meeting.status = "failed"; db.commit()
+        raise HTTPException(502, f"Meeting processing failed: {exc}") from exc
+    return {"meeting_id": meeting.id, "status": meeting.status, "mode": provider.name, "message": "Meeting intelligence persisted."}
 
 @app.post("/api/meetings/{meeting_id}/join")
 def join_meeting(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
