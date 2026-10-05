@@ -51,8 +51,9 @@ def test_upload_stores_recording_metadata(client):
     meeting_id = client.get('/api/meetings', headers=headers).json()['items'][0]['id']
     response = client.post(f'/api/meetings/{meeting_id}/upload', headers=headers, files={'file': ('notes.txt', b'Project Apollo transcript', 'text/plain')})
     assert response.status_code == 200
-    assert response.json()['status'] == 'uploaded'
+    assert response.json()['status'] == 'analyzed'
     assert response.json()['recording_id']
+    assert response.json()['segments_created'] == 1
 
 def test_search_and_exports_are_authorized(client):
     headers = auth_headers(client)

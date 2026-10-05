@@ -11,6 +11,7 @@ from .ai.provider import get_ai_provider
 from .db import get_db, init_db
 from .models import ActionItem, Decision, Meeting, OpenQuestion, Recording, Risk, TranscriptSegment, User
 from .storage import store_bytes
+from .transcription.parser import parse_text
 
 app = FastAPI(title="MeetMind AI API", version="1.1.0", description="Evidence-based meeting intelligence API")
 app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -156,8 +157,15 @@ async def upload(meeting_id: str, file: UploadFile = File(...), user: User = Dep
     if len(content) > 250 * 1024 * 1024: raise HTTPException(413, "Meeting file exceeds the 250 MB limit")
     storage_path = store_bytes(meeting_id, file.filename or "meeting-upload", content)
     recording = Recording(meeting_id=meeting_id, filename=file.filename or "meeting-upload", content_type=file.content_type or "application/octet-stream", storage_path=storage_path, size_bytes=len(content))
-    db.add(recording); db.commit()
-    return {"recording_id": recording.id, "filename": recording.filename, "bytes": len(content), "status": "uploaded", "message": "Recording stored. Transcription provider is not configured."}
+    db.add(recording)
+    parsed = 0
+    if (file.content_type or "").startswith("text/") or (file.filename or "").lower().endswith((".txt", ".srt", ".vtt")):
+        for segment in parse_text(content.decode("utf-8", errors="replace")):
+            db.add(TranscriptSegment(meeting_id=meeting_id, **segment)); parsed += 1
+        meeting = user_meeting(db, meeting_id, user); meeting.status = "analyzed" if parsed else "uploaded"
+    db.commit()
+    message = "Transcript parsed and persisted." if parsed else "Recording stored. Transcription provider is not configured for media files."
+    return {"recording_id": recording.id, "filename": recording.filename, "bytes": len(content), "status": "analyzed" if parsed else "uploaded", "segments_created": parsed, "message": message}
 
 @app.post("/api/meetings/{meeting_id}/process")
 def process(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
