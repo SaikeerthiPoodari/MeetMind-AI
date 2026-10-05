@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3072" height="1728" viewBox="0 0 3072 1728">
+  <rect width="3072" height="1728" fill="#ffffff"/>
+  <style>
+    .navy{fill:#13233f}.muted{fill:#334155}.line{fill:none;stroke:#13233f;stroke-width:8;stroke-linecap:round;stroke-linejoin:round}.thin{fill:none;stroke:#13233f;stroke-width:5;stroke-linecap:round;stroke-linejoin:round}.body{font-family:Arial,Helvetica,sans-serif}.title{font-size:38px;font-weight:700}.stage{font-size:28px;font-weight:700}.copy{font-size:22px}.num{font-size:34px;font-weight:700}
+  </style>
+  <g class="body">
+    <circle cx="300" cy="255" r="58" fill="#fff" stroke="#13233f" stroke-width="8"/><text x="300" y="267" text-anchor="middle" class="navy num">1</text>
+    <circle cx="930" cy="255" r="58" fill="#fff" stroke="#13233f" stroke-width="8"/><text x="930" y="267" text-anchor="middle" class="navy num">2</text>
+    <circle cx="1560" cy="255" r="58" fill="#fff" stroke="#13233f" stroke-width="8"/><text x="1560" y="267" text-anchor="middle" class="navy num">3</text>
+    <circle cx="2190" cy="255" r="58" fill="#fff" stroke="#13233f" stroke-width="8"/><text x="2190" y="267" text-anchor="middle" class="navy num">4</text>
+    <circle cx="2820" cy="255" r="58" fill="#fff" stroke="#13233f" stroke-width="8"/><text x="2820" y="267" text-anchor="middle" class="navy num">5</text>
+    <path d="M300 315v52M930 315v52M1560 315v52M2190 315v52M2820 315v52" class="thin" stroke-dasharray="3 13"/>
+    <circle cx="300" cy="377" r="16" fill="#243b68"/><circle cx="930" cy="377" r="16" fill="#31bfd2"/><circle cx="1560" cy="377" r="16" fill="#f0bc36"/><circle cx="2190" cy="377" r="16" fill="#ef5861"/><circle cx="2820" cy="377" r="16" fill="#243b68"/>
+  </g>
+  <g fill="#fff" stroke="#13233f" stroke-width="7" stroke-linejoin="round">
+    <path d="M45 405h470l102 184-102 360H45l102-360z"/><path d="M675 405h470l102 184-102 360H675l102-360z"/><path d="M1305 405h470l102 184-102 360h-470l102-360z"/><path d="M1935 405h470l102 184-102 360h-470l102-360z"/><path d="M2565 405h470l102 184-102 360h-470l102-360z"/>
+  </g>
+  <g class="line">
+    <rect x="205" y="500" width="215" height="125" rx="13"/><path d="M205 536h215M238 518h2M266 518h2M294 518h2"/><rect x="250" y="560" width="125" height="28" rx="5" stroke="#31bfd2"/>
+    <circle cx="828" cy="540" r="26" stroke="#31bfd2"/><path d="m815 540 10 10 20-25M875 529h112M875 555h80M828 610c-22 0-40 17-40 38h80c0-21-18-38-40-38z"/>
+    <rect x="1450" y="500" width="215" height="52" rx="12"/><rect x="1450" y="565" width="215" height="52" rx="12"/><rect x="1450" y="630" width="215" height="52" rx="12"/><circle cx="1480" cy="526" r="7" fill="#f0bc36" stroke="none"/><circle cx="1480" cy="591" r="7" fill="#f0bc36" stroke="none"/><circle cx="1480" cy="656" r="7" fill="#f0bc36" stroke="none"/><path d="M1700 610h38M1720 590v40" stroke="#f0bc36"/>
+    <path d="M2122 552c0-52 43-94 96-94 27 0 51 11 68 29 14-9 30-14 48-14 47 0 85 38 85 85 0 5 0 10-1 15h-296z"/><rect x="2205" y="510" width="137" height="105" rx="12" stroke="#ef5861"/><path d="M2230 540h87M2230 570h62M2295 492v18M2255 492v18M2335 492v18" stroke="#ef5861"/>
+    <rect x="2687" y="495" width="205" height="170" rx="12"/><path d="M2687 535h205M2720 518h2M2748 518h2M2776 518h2M2720 572h138M2720 600h138M2720 628h94"/><path d="M2860 688 2890 720 2950 650" stroke="#31bfd2"/>
+  </g>
+  <g class="body">
+    <text x="300" y="750" text-anchor="middle" class="stage navy">Browser UI</text><text x="300" y="795" text-anchor="middle" class="copy muted">React + TypeScript frontend</text><text x="300" y="829" text-anchor="middle" class="copy muted">dashboard, meetings, profile</text>
+    <text x="930" y="750" text-anchor="middle" class="stage navy">Meeting Capture</text><text x="930" y="795" text-anchor="middle" class="copy muted">camera / microphone consent</text><text x="930" y="829" text-anchor="middle" class="copy muted">recording and transcript input</text>
+    <text x="1560" y="750" text-anchor="middle" class="stage navy">FastAPI Gateway</text><text x="1560" y="795" text-anchor="middle" class="copy muted">JWT auth, routing and access</text><text x="1560" y="829" text-anchor="middle" class="copy muted">meetings, sharing, search, assistant</text>
+    <text x="2190" y="750" text-anchor="middle" class="stage navy">AI Processing</text><text x="2190" y="795" text-anchor="middle" class="copy muted">six resumable processing stages</text><text x="2190" y="829" text-anchor="middle" class="copy muted">summary, actions, risks, Q&amp;A</text>
+    <text x="2820" y="750" text-anchor="middle" class="stage navy">Results &amp; Storage</text><text x="2820" y="795" text-anchor="middle" class="copy muted">SQLite, media and exports</text><text x="2820" y="829" text-anchor="middle" class="copy muted">evidence-linked dashboard output</text>
+  </g>
+  <g class="body">
+    <path d="M120 1060c35 105 150 110 220 35l35-38" class="line"/><path d="m352 1060 26-31 31 25" class="line"/><path d="M750 1060c50 130 230 135 300 15l26-43" class="line"/><path d="m1050 1045 27-31 27 27" class="line"/><path d="M1380 1060c50 130 230 135 300 15l26-43" class="line"/><path d="m1680 1045 27-31 27 27" class="line"/><path d="M2010 1060c50 130 230 135 300 15l26-43" class="line"/><path d="m2310 1045 27-31 27 27" class="line"/><path d="M2640 1060c50 130 230 135 300 15l26-43" class="line"/><path d="m2940 1045 27-31 27 27" class="line"/>
+    <circle cx="110" cy="1080" r="12" fill="#31bfd2"/><circle cx="760" cy="1120" r="12" fill="#f0bc36"/><circle cx="1390" cy="1120" r="12" fill="#ef5861"/><circle cx="2020" cy="1120" r="12" fill="#31bfd2"/>
+    <text x="1536" y="1325" text-anchor="middle" class="title navy">MeetMind AI — System Architecture &amp; Workflow</text><text x="1536" y="1385" text-anchor="middle" class="copy muted">User interaction flows through secure APIs into grounded AI processing and returns structured meeting intelligence.</text>
+    <rect x="790" y="1450" width="1492" height="100" rx="50" fill="#f6fbfc" stroke="#31bfd2" stroke-width="4"/><text x="1536" y="1512" text-anchor="middle" class="copy navy">Core flow: Capture → Authenticate → Process → Persist → Display</text>
+  </g>
+</svg>
