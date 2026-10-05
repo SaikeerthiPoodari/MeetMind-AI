@@ -279,6 +279,15 @@ def meeting_health(meeting_id: str, user: User = Depends(current_user), db: Sess
     signals.append({"label": "Open risk exposure", "value": len([item for item in risk_items if item.status.upper() != "RESOLVED"]), "status": "watch" if risk_score < 80 else "strong"})
     return {"meeting_id": meeting_id, "score": score, "components": {"evidence": round(evidence), "alignment": round(alignment), "follow_through": follow_through, "risk": risk_score}, "signals": signals}
 
+@app.get("/api/meetings/{meeting_id}/intelligence")
+def meeting_intelligence(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting_id = owned_id(db, meeting_id, user)
+    decisions_data = db.scalars(select(Decision).where(Decision.meeting_id == meeting_id).order_by(Decision.timestamp)).all()
+    actions_data = db.scalars(select(ActionItem).where(ActionItem.meeting_id == meeting_id).order_by(ActionItem.deadline)).all()
+    decision_dna = [{"decision": item.decision, "owner": item.speaker, "timestamp": item.timestamp, "confidence": item.confidence, "evidence": item.evidence, "status": item.status} for item in decisions_data]
+    commitment_radar = [{"commitment": item.task, "owner": item.owner_id, "deadline": item.deadline, "status": item.status, "priority": item.priority, "evidence": item.evidence, "timestamp": item.timestamp} for item in actions_data]
+    return {"meeting_id": meeting_id, "decision_dna": decision_dna, "commitment_radar": commitment_radar}
+
 @app.post("/api/meetings/{meeting_id}/translate")
 def translate_meeting(meeting_id: str, payload: TranslationRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = user_meeting(db, meeting_id, user)

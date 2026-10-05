@@ -668,6 +668,9 @@ function Meeting({
       status: string;
     }>
   >([]);
+  const [intelligence, setIntelligence] = useState<Awaited<
+    ReturnType<typeof api.intelligence>
+  > | null>(null);
   useEffect(() => {
     if (!meeting) return;
     if (!meeting.is_demo)
@@ -690,6 +693,10 @@ function Meeting({
         setRisks([]);
         setQuestions([]);
       });
+    api
+      .intelligence(meeting.id)
+      .then(setIntelligence)
+      .catch(() => setIntelligence(null));
   }, [meeting]);
   if (!meeting)
     return (
@@ -781,6 +788,71 @@ function Meeting({
         </div>
       </div>
       {exportError && <p className="api-notice">{exportError}</p>}
+      {tab === "Overview" && intelligence && (
+        <section className="insight-grid intelligence-grid">
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">DECISION DNA</p>
+                <h2>What was decided, and why?</h2>
+              </div>
+              <span className="count">{intelligence.decision_dna.length}</span>
+            </div>
+            {intelligence.decision_dna.map((item) => (
+              <div
+                className="decision"
+                key={`${item.timestamp}-${item.decision}`}
+              >
+                <div className="decision-check">
+                  <CheckCircle2 size={15} />
+                </div>
+                <div>
+                  <strong>{item.decision}</strong>
+                  <p>
+                    {item.owner} · {item.timestamp}
+                  </p>
+                  <small>
+                    {Math.round(item.confidence * 100)}% confidence ·{" "}
+                    {item.evidence}
+                  </small>
+                </div>
+              </div>
+            ))}
+            {!intelligence.decision_dna.length && (
+              <p className="muted">No decisions recorded.</p>
+            )}
+          </section>
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">COMMITMENT RADAR</p>
+                <h2>Promises in motion</h2>
+              </div>
+              <span className="count">
+                {intelligence.commitment_radar.length}
+              </span>
+            </div>
+            {intelligence.commitment_radar.map((item) => (
+              <div
+                className="risk"
+                key={`${item.timestamp}-${item.commitment}`}
+              >
+                <span className={`risk-bar ${item.priority.toLowerCase()}`} />
+                <div>
+                  <strong>{item.commitment}</strong>
+                  <p>
+                    {item.owner} · due {item.deadline}
+                  </p>
+                  <small className="muted">{item.status}</small>
+                </div>
+              </div>
+            ))}
+            {!intelligence.commitment_radar.length && (
+              <p className="muted">No commitments recorded.</p>
+            )}
+          </section>
+        </section>
+      )}
       {tab === "Overview" && (
         <section className="panel translation-panel">
           <div className="panel-head">

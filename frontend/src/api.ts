@@ -274,6 +274,26 @@ export const api = {
       components: Record<string, number>;
       signals: Array<{ label: string; value: string | number; status: string }>;
     }>(`/api/meetings/${meetingId}/health`),
+  intelligence: (meetingId: string) =>
+    request<{
+      decision_dna: Array<{
+        decision: string;
+        owner: string;
+        timestamp: string;
+        confidence: number;
+        evidence: string;
+        status: string;
+      }>;
+      commitment_radar: Array<{
+        commitment: string;
+        owner: string;
+        deadline: string;
+        status: string;
+        priority: string;
+        evidence: string;
+        timestamp: string;
+      }>;
+    }>(`/api/meetings/${meetingId}/intelligence`),
   profile: () =>
     request<{
       id: string;

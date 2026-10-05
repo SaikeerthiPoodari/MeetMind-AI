@@ -172,3 +172,13 @@ def test_meeting_health_is_computed_from_persisted_records(client):
     assert 0 <= body['score'] <= 100
     assert body['components']['evidence'] > 0
     assert any(signal['label'] == 'Transcript evidence' for signal in body['signals'])
+
+def test_meeting_intelligence_is_grounded_in_persisted_decisions_and_actions(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    response = client.get(f"/api/meetings/{demo['id']}/intelligence", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body['decision_dna']) >= 1
+    assert len(body['commitment_radar']) >= 1
+    assert body['decision_dna'][0]['evidence']
