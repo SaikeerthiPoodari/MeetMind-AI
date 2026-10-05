@@ -13,6 +13,7 @@ from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSessi
 from .storage import store_bytes
 from .transcription.parser import parse_text
 from .translation.provider import SUPPORTED_LANGUAGES, get_translation_provider
+from .transcription.provider import get_transcription_provider
 
 app = FastAPI(title="MeetMind AI API", version="1.1.0", description="Evidence-based meeting intelligence API")
 app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -78,7 +79,8 @@ def owned_id(db: Session, meeting_id: str, user: User) -> str: return user_meeti
 def health():
     provider = get_ai_provider()
     translation = get_translation_provider()
-    return {"status": "ok", "service": "meetmind-api", "demo_mode": os.getenv("AI_PROVIDER", "demo") == "demo", "database": "connected", "ai_provider": provider.name, "ai_configured": provider.configured, "translation_provider": translation.name, "translation_configured": translation.configured}
+    transcription = get_transcription_provider()
+    return {"status": "ok", "service": "meetmind-api", "demo_mode": os.getenv("AI_PROVIDER", "demo") == "demo", "database": "connected", "ai_provider": provider.name, "ai_configured": provider.configured, "translation_provider": translation.name, "translation_configured": translation.configured, "transcription_provider": transcription.name, "transcription_configured": transcription.configured}
 
 @app.post("/api/auth/register", status_code=201)
 def register(credentials: Credentials, db: Session = Depends(get_db)):
