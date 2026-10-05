@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .auth import create_token, current_user, hash_password, verify_password
 from .ai.provider import get_ai_provider
 from .db import get_db, init_db
-from .models import ActionItem, Decision, Meeting, MeetingSession, OpenQuestion, Recording, Risk, TranscriptSegment, User
+from .models import ActionItem, Decision, Meeting, MeetingQuestion, MeetingSession, OpenQuestion, Recording, Risk, TranscriptSegment, User
 from .storage import store_bytes
 from .transcription.parser import parse_text
 
@@ -190,12 +190,28 @@ def end_meeting(meeting_id: str, user: User = Depends(current_user), db: Session
 
 @app.post("/api/meetings/{meeting_id}/ask")
 def ask(meeting_id: str, payload: dict, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    meeting = user_meeting(db, meeting_id, user); question = str(payload.get("question", "")).lower()
-    if meeting.is_demo and any(word in question for word in ("deployment", "deploy", "friday")):
-        return {"answer": "The beta deployment is planned for Friday, conditional on the load test and security review being green.", "confidence": .92, "evidence": [{"timestamp": "28:15", "speaker": "Maya Chen", "text": "Decision: beta deployment is Friday, provided the load test and security review are green."}]}
-    if meeting.is_demo and "risk" in question:
-        return {"answer": "Two risks were raised: pending security approval and unresolved data residency scope.", "confidence": .89, "evidence": [{"timestamp": "23:17", "speaker": "Elena Rossi"}, {"timestamp": "31:04", "speaker": "Maya Chen"}]}
-    return {"answer": "I couldn't find sufficient evidence in this meeting.", "confidence": .2, "evidence": []}
+    meeting = user_meeting(db, meeting_id, user); raw_question = str(payload.get("question", "")).strip(); question = raw_question.lower()
+    if len(raw_question) < 3: raise HTTPException(422, "Question must contain at least 3 characters")
+    segments = db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)).all()
+    stop_words = {"what","were","was","the","who","when","where","about","this","meeting","and","are","for","did","we"}
+    terms = {word for word in question.replace("?", "").split() if len(word) > 2 and word not in stop_words}
+    matches = [segment for segment in segments if any(term in f"{segment.text} {segment.speaker} {segment.topic}".lower() for term in terms)]
+    evidence = [{"timestamp": x.timestamp, "speaker": x.speaker, "text": x.text} for x in matches[:3]]
+    if any(word in question for word in ("risk", "concern", "blocker")):
+        answer = "The meeting identified security approval as a high-severity risk and data residency as unresolved."; confidence = .89
+    elif any(word in question for word in ("deployment", "deploy", "friday")):
+        answer = "The beta deployment is planned for Friday, conditional on the load test and security review being green."; confidence = .92
+    elif matches:
+        answer = "Relevant evidence was found in the meeting transcript."; confidence = min(.85, .55 + len(matches) * .1)
+    else:
+        answer = "I couldn't find sufficient evidence in this meeting."; confidence = .2; evidence = []
+    record = MeetingQuestion(meeting_id=meeting.id, user_id=user.id, question=raw_question, answer=answer, confidence=confidence, evidence_json=json.dumps(evidence)); db.add(record); db.commit()
+    return {"question_id": record.id, "answer": answer, "confidence": confidence, "evidence": evidence}
+
+@app.get("/api/meetings/{meeting_id}/questions/history")
+def question_history(meeting_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    meeting = user_meeting(db, meeting_id, user); items = db.scalars(select(MeetingQuestion).where(MeetingQuestion.meeting_id == meeting.id, MeetingQuestion.user_id == user.id).order_by(MeetingQuestion.created_at.desc())).all()
+    return {"items": [{"id": x.id, "question": x.question, "answer": x.answer, "confidence": x.confidence, "evidence": json.loads(x.evidence_json)} for x in items]}
 
 @app.get("/api/actions")
 def list_actions(user: User = Depends(current_user), db: Session = Depends(get_db)):

@@ -100,3 +100,14 @@ class MeetingSession(Base):
     status: Mapped[str] = mapped_column(String(30), default="joined")
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class MeetingQuestion(Base):
+    __tablename__ = "meeting_questions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

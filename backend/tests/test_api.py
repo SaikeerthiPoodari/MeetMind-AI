@@ -32,6 +32,16 @@ def test_ask_refuses_unknown_facts(client):
     assert response.status_code == 200
     assert response.json()['evidence'] == []
 
+def test_ask_retrieves_evidence_and_persists_history(client):
+    headers = auth_headers(client)
+    demo = next(item for item in client.get('/api/meetings', headers=headers).json()['items'] if item['is_demo'])
+    response = client.post(f"/api/meetings/{demo['id']}/ask", headers=headers, json={'question': 'What did we decide about PostgreSQL reporting?'})
+    assert response.status_code == 200
+    assert response.json()['evidence']
+    history = client.get(f"/api/meetings/{demo['id']}/questions/history", headers=headers)
+    assert history.status_code == 200
+    assert any(item['id'] == response.json()['question_id'] for item in history.json()['items'])
+
 def test_register_create_and_update_action(client):
     email = f"qa-{uuid4()}@example.com"
     registration = client.post('/api/auth/register', json={'email': email, 'password': 'StrongPass123!'})
