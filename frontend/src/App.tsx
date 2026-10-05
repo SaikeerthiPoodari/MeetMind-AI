@@ -571,6 +571,9 @@ function Meeting({
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
   const [exportError, setExportError] = useState("");
+  const [targetLanguage, setTargetLanguage] = useState("hi");
+  const [translation, setTranslation] = useState("");
+  const [translationError, setTranslationError] = useState("");
   const [answer, setAnswer] = useState<{
     answer: string;
     confidence: number;
@@ -629,6 +632,18 @@ function Meeting({
       setExportError(e instanceof Error ? e.message : "Export failed");
     }
   };
+  const translate = async () => {
+    try {
+      setTranslationError("");
+      setTranslation(
+        (await api.translate(meeting.id, targetLanguage)).translated_text,
+      );
+    } catch (e) {
+      setTranslationError(
+        e instanceof Error ? e.message : "Translation failed",
+      );
+    }
+  };
   return (
     <div className="page meeting-page">
       <button className="back-btn" onClick={onBack}>
@@ -665,6 +680,36 @@ function Meeting({
         </div>
       </div>
       {exportError && <p className="api-notice">{exportError}</p>}
+      {tab === "Overview" && (
+        <section className="panel translation-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">MULTILINGUAL INTELLIGENCE</p>
+              <h2>Translate summary</h2>
+            </div>
+            <span className="muted">Original content is preserved</span>
+          </div>
+          <select
+            value={targetLanguage}
+            onChange={(event) => setTargetLanguage(event.target.value)}
+            aria-label="Translation language"
+          >
+            <option value="hi">Hindi</option>
+            <option value="te">Telugu</option>
+            <option value="ta">Tamil</option>
+            <option value="kn">Kannada</option>
+            <option value="ml">Malayalam</option>
+            <option value="mr">Marathi</option>
+            <option value="bn">Bengali</option>
+            <option value="en">English</option>
+          </select>
+          <button className="primary" onClick={translate}>
+            Translate
+          </button>
+          {translationError && <p className="api-notice">{translationError}</p>}
+          {translation && <p className="translated-output">{translation}</p>}
+        </section>
+      )}
       <div className="tabs">
         {[
           "Overview",

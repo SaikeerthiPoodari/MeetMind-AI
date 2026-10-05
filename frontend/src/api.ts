@@ -214,6 +214,18 @@ export const api = {
     }>("/api/notifications"),
   markNotification: (id: string) =>
     request(`/api/notifications/${id}`, { method: "PATCH" }),
+  translate: (
+    meetingId: string,
+    targetLanguage: string,
+    scope: "summary" | "transcript" = "summary",
+  ) =>
+    request<{ translated_text: string; target_language: string }>(
+      `/api/meetings/${meetingId}/translate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ target_language: targetLanguage, scope }),
+      },
+    ),
   compare: (firstId: string, secondId: string) =>
     request(
       `/api/compare/meetings?first_id=${encodeURIComponent(firstId)}&second_id=${encodeURIComponent(secondId)}`,
